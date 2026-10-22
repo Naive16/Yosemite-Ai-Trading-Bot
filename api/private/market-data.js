@@ -9,6 +9,7 @@ import { checkMarketDataRateLimit } from "../_lib/market-data/rate-limit.js";
 import { latestCandleFreshness } from "../_lib/market-data/normalize.js";
 import { getTimeframeDefinition } from "../_lib/market-data/symbols.js";
 import { RateLimitUnavailableError } from "../_lib/rate-limit.js";
+import { runtimeEnv } from "../_lib/runtime.js";
 
 const cache = new MarketDataCache();
 
@@ -21,7 +22,7 @@ export function clearMarketDataCache() { cache.clear(); }
 export default async function handler(request, response) {
   if (request.method !== "GET") return methodNotAllowed(response, "GET");
   let config;
-  try { config = loadConfig(); } catch (error) {
+  try { config = loadConfig(runtimeEnv(request)); } catch (error) {
     if (error instanceof ConfigurationError) return unavailable(response, "configuration_invalid");
     throw error;
   }
@@ -29,7 +30,7 @@ export default async function handler(request, response) {
   if (!config.database.configured) return unavailable(response, "database_unavailable");
 
   let session; let database;
-  try { database = getDatabase(); session = await getSession(request, database, config); } catch (error) {
+  try { database = getDatabase(runtimeEnv(request)); session = await getSession(request, database, config); } catch (error) {
     if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable");
     throw error;
   }

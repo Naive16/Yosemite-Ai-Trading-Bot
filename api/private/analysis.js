@@ -10,6 +10,7 @@ import { createNewsProvider, NewsProviderError } from "../_lib/news/provider.js"
 import { createAnalysisClient, ClaudeProviderError } from "../_lib/claude/client.js";
 import { evaluateBaselineStrategy, STRATEGY_NAME, StrategyInputError } from "../_lib/strategy/engine.js";
 import { RateLimitUnavailableError } from "../_lib/rate-limit.js";
+import { runtimeEnv } from "../_lib/runtime.js";
 
 function unavailable(response, code = "analysis_unavailable", status = 503, extraHeaders = {}) { return sendJson(response, status, { status: "unavailable", code, recommendation: "NO TRADE", message: "AI market analysis is unavailable" }, extraHeaders); }
 
@@ -31,10 +32,10 @@ function snapshot({ query, quote, candles, candidate, news, higherTimeframe }) {
 
 export default async function handler(request, response) {
   if (request.method !== "GET") return methodNotAllowed(response, "GET");
-  let config; try { config = loadConfig(); } catch (error) { if (error instanceof ConfigurationError) return unavailable(response, "configuration_invalid"); throw error; }
+  let config; try { config = loadConfig(runtimeEnv(request)); } catch (error) { if (error instanceof ConfigurationError) return unavailable(response, "configuration_invalid"); throw error; }
   if (!config.auth.configured) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   if (!config.database.configured) return unavailable(response, "database_unavailable");
-  let session; let database; try { database = getDatabase(); session = await getSession(request, database, config); } catch (error) { if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable"); throw error; }
+  let session; let database; try { database = getDatabase(runtimeEnv(request)); session = await getSession(request, database, config); } catch (error) { if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable"); throw error; }
   if (!session) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   let aiLimit; let marketLimit;
   try { aiLimit = await checkAiRateLimit(database, request, config, session.userId); marketLimit = await checkMarketDataRateLimit(database, request, config, session.userId); } catch (error) {

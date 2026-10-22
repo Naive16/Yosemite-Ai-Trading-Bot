@@ -5,6 +5,7 @@ import { sendJson, methodNotAllowed } from "../_lib/http.js";
 import { assertSameOrigin, InputValidationError, parseJsonBody } from "../_lib/validation.js";
 import { findProposal, listProposals, transitionProposal } from "../_lib/proposals/repository.js";
 import { proposalEligibility, verifyProposalDigest } from "../_lib/proposals/canonical.js";
+import { runtimeEnv } from "../_lib/runtime.js";
 
 function safeUnavailable(response, code = "proposal_unavailable") { return sendJson(response, 503, { status: "unavailable", code, message: "Proposal workflow is unavailable", approvalAllowed: false }); }
 function query(request) { const url = new URL(request.url || "http://localhost/api/private/proposals", "http://localhost"); return { proposalId: url.searchParams.get("proposalId") || "", version: Number(url.searchParams.get("version") || "0") }; }
@@ -21,11 +22,11 @@ function rowProposal(row) { const payload = typeof row.payload === "string" ? JS
 
 export default async function handler(request, response) {
   if (!["GET", "POST"].includes(request.method)) return methodNotAllowed(response, "GET, POST");
-  let config; try { config = loadConfig(); } catch (error) { if (error instanceof ConfigurationError) return safeUnavailable(response, "configuration_invalid"); throw error; }
+  let config; try { config = loadConfig(runtimeEnv(request)); } catch (error) { if (error instanceof ConfigurationError) return safeUnavailable(response, "configuration_invalid"); throw error; }
   if (!config.auth.configured) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   if (!config.database.configured) return safeUnavailable(response, "database_unavailable");
   let db; let session;
-  try { db = getDatabase(); session = await getSession(request, db, config); } catch (error) { if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return safeUnavailable(response, "database_unavailable"); throw error; }
+  try { db = getDatabase(runtimeEnv(request)); session = await getSession(request, db, config); } catch (error) { if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return safeUnavailable(response, "database_unavailable"); throw error; }
   if (!session) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   try {
     if (request.method === "GET") {

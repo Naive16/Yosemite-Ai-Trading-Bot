@@ -5,12 +5,13 @@ import { sendJson, methodNotAllowed } from "../_lib/http.js";
 import { assertSameOrigin, InputValidationError, parseJsonBody } from "../_lib/validation.js";
 import { checkRiskRateLimit } from "../_lib/risk/rate-limit.js";
 import { RateLimitUnavailableError } from "../_lib/rate-limit.js";
+import { runtimeEnv } from "../_lib/runtime.js";
 
 export default async function handler(request, response) {
   if (!["GET", "POST"].includes(request.method)) return methodNotAllowed(response, "GET, POST");
-  let config; try { config = loadConfig(); } catch (error) { if (error instanceof ConfigurationError) return sendJson(response, 503, { status: "unavailable", mode: "paper_simulation", code: "configuration_invalid", message: "Paper simulation is unavailable" }); throw error; }
+  let config; try { config = loadConfig(runtimeEnv(request)); } catch (error) { if (error instanceof ConfigurationError) return sendJson(response, 503, { status: "unavailable", mode: "paper_simulation", code: "configuration_invalid", message: "Paper simulation is unavailable" }); throw error; }
   if (!config.auth.configured) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" }); if (!config.database.configured) return sendJson(response, 503, { status: "unavailable", mode: "paper_simulation", code: "database_unavailable", message: "Paper simulation is unavailable" });
-  let session; let db; try { db = getDatabase(); session = await getSession(request, db, config); } catch (error) { if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return sendJson(response, 503, { status: "unavailable", mode: "paper_simulation", code: "database_unavailable", message: "Paper simulation is unavailable" }); throw error; }
+  let session; let db; try { db = getDatabase(runtimeEnv(request)); session = await getSession(request, db, config); } catch (error) { if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return sendJson(response, 503, { status: "unavailable", mode: "paper_simulation", code: "database_unavailable", message: "Paper simulation is unavailable" }); throw error; }
   if (!session) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   let limit; try { limit = await checkRiskRateLimit(db, request, config, session.userId); } catch (error) { if (error instanceof RateLimitUnavailableError) return sendJson(response, 503, { status: "unavailable", mode: "paper_simulation", code: "rate_limiter_unavailable", message: "Paper simulation is unavailable" }); throw error; }
   if (!limit.allowed) return sendJson(response, 429, { status: "error", code: "rate_limited", message: "Paper simulation rate limit reached" }, { "Retry-After": String(limit.retryAfterSeconds) });

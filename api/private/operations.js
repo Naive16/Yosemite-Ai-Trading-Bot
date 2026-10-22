@@ -3,18 +3,19 @@ import { getSession } from "../_lib/auth.js";
 import { DatabaseConfigurationError, DatabaseQueryError, getDatabase } from "../_lib/database.js";
 import { buildHealthReport, heartbeatHealth } from "../_lib/operations/health.js";
 import { methodNotAllowed, sendJson } from "../_lib/http.js";
+import { runtimeEnv } from "../_lib/runtime.js";
 
 export default async function handler(request, response) {
   if (request.method !== "GET") return methodNotAllowed(response, "GET");
   let config;
-  try { config = loadConfig(); } catch (error) {
+  try { config = loadConfig(runtimeEnv(request)); } catch (error) {
     if (error instanceof ConfigurationError) return sendJson(response, 503, { status: "error", message: "Operational configuration is unavailable" });
     throw error;
   }
   if (!config.auth.configured) return sendJson(response, 401, { status: "error", message: "Authentication required" });
   if (!config.database.configured) return sendJson(response, 503, { status: "error", message: "Database is not configured" });
   try {
-    const database = getDatabase();
+    const database = getDatabase(runtimeEnv(request));
     const session = await getSession(request, database, config);
     if (!session) return sendJson(response, 401, { status: "error", message: "Authentication required" });
     let databaseState = { state: "unknown", reason: "Database health was not established" };

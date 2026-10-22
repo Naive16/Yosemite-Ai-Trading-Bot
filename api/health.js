@@ -20,7 +20,7 @@ const foundationResponse = (config = null) => ({
 export default function handler(request, response) {
   if (request.method !== "GET") return methodNotAllowed(response, "GET");
   let config = null;
-  try { config = loadConfig(); } catch { /* Keep health safe when optional configuration is incomplete. */ }
+  try { config = loadConfig(request?.runtimeEnv); } catch { /* Keep health safe when optional configuration is incomplete. */ }
   return sendJson(response, 200, foundationResponse(config));
 }
 

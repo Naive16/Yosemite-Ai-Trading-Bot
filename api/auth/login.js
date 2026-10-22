@@ -5,13 +5,14 @@ import { ensureConfiguredUser, insertAuditEvent } from "../_lib/repository.js";
 import { header, methodNotAllowed, sendJson, setSessionCookie } from "../_lib/http.js";
 import { assertSameOrigin, InputValidationError, parseLoginPayload } from "../_lib/validation.js";
 import { RateLimitUnavailableError } from "../_lib/rate-limit.js";
+import { runtimeEnv } from "../_lib/runtime.js";
 
 export default async function handler(request, response) {
   if (request.method !== "POST") return methodNotAllowed(response, "POST");
 
   let config;
   try {
-    config = loadConfig();
+    config = loadConfig(runtimeEnv(request));
   } catch (error) {
     if (error instanceof ConfigurationError) return sendJson(response, 503, { status: "error", message: "Authentication is not configured" });
     throw error;
@@ -22,7 +23,7 @@ export default async function handler(request, response) {
   try {
     assertSameOrigin(request, config.appOrigin);
     const credentials = parseLoginPayload(request);
-    const db = getDatabase();
+    const db = getDatabase(runtimeEnv(request));
     const rate = await checkLoginRateLimit(db, request, config, credentials.username);
     if (!rate.allowed) return sendJson(response, 429, { status: "error", message: "Too many sign-in attempts" }, { "Retry-After": String(rate.retryAfterSeconds) });
 

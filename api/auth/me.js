@@ -2,12 +2,13 @@ import { loadConfig, ConfigurationError } from "../_lib/config.js";
 import { getSession } from "../_lib/auth.js";
 import { DatabaseConfigurationError, DatabaseQueryError, getDatabase } from "../_lib/database.js";
 import { methodNotAllowed, sendJson } from "../_lib/http.js";
+import { runtimeEnv } from "../_lib/runtime.js";
 
 export default async function handler(request, response) {
   if (request.method !== "GET") return methodNotAllowed(response, "GET");
   let config;
   try {
-    config = loadConfig();
+    config = loadConfig(runtimeEnv(request));
   } catch (error) {
     if (error instanceof ConfigurationError) return sendJson(response, 503, { status: "error", message: "Authentication is not configured" });
     throw error;
@@ -15,7 +16,7 @@ export default async function handler(request, response) {
   if (!config.auth.configured) return sendJson(response, 503, { status: "error", message: "Authentication is not configured" });
   if (!config.database.configured) return sendJson(response, 503, { status: "error", message: "Database is not configured" });
   try {
-    const session = await getSession(request, getDatabase(), config);
+    const session = await getSession(request, getDatabase(runtimeEnv(request)), config);
     if (!session) return sendJson(response, 401, { status: "error", message: "Authentication required" });
     return sendJson(response, 200, { status: "ok", user: { username: session.username }, csrfToken: session.csrfToken, expiresAt: new Date(session.expiresAt).toISOString() });
   } catch (error) {

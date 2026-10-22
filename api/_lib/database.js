@@ -47,9 +47,9 @@ export function createDatabaseClient(config, driver = neon) {
   });
 }
 
-export function getDatabase() {
+export function getDatabase(env = process.env) {
   if (testDatabase) return testDatabase;
-  const config = loadConfig();
+  const config = loadConfig(env);
   if (!config.database.configured) throw new DatabaseConfigurationError("DATABASE_URL is not configured");
   if (!cachedDatabase || cachedDatabase.url !== config.database.url) {
     cachedDatabase = { url: config.database.url, client: createDatabaseClient(config) };

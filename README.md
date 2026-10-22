@@ -4,7 +4,7 @@ Yosemite AI is an AI-assisted forex trading workspace designed around explicit u
 
 ## Current status
 
-Milestone 14 — deployment preparation for a Vercel-compatible dashboard/API and Neon-backed persistence. No remote deployment, Git push, or browser production verification has been performed.
+Local deployment preparation now includes a native Cloudflare Workers entry point alongside the existing Node server and Neon-backed persistence. No remote deployment, Git push, Cloudflare resource change, or browser production verification has been performed.
 
 The current build contains the Milestone 1 dashboard and health-check scaffold, Milestone 2 authentication, Milestone 3 Neon persistence, the responsive Milestone 4 trading-terminal workspace, the Milestone 5 provider-independent market-data layer, the Milestone 6 deterministic baseline strategy engine, the Milestone 7 server-only Claude analysis adapter, the Milestone 8 independent risk engine, the Milestone 9 immutable proposal/explicit approval workflow, the Milestone 10 deterministic backtest engine plus paper-simulation boundary, and the Milestone 12 MT5 adapter/reconciliation foundation. Twelve Data, Claude, the optional news feed, trusted account/exposure feeds, instrument specifications, MT5 terminal access, and broker execution are unavailable by default. Live trading, demo execution, and continuous paper operation are disabled.
 
@@ -22,7 +22,7 @@ Start the local HTTP server with Node.js 20 or newer:
 npm start
 ```
 
-The server binds to `0.0.0.0` and uses `PORT` when supplied, otherwise `3000`. Open `http://localhost:3000/`. The Render deployment settings are documented in [docs/runbooks/render-deployment.md](docs/runbooks/render-deployment.md).
+The server binds to `0.0.0.0` and uses `PORT` when supplied, otherwise `3000`. Open `http://localhost:3000/`. The manual Cloudflare Workers runbook is [docs/runbooks/cloudflare-deployment.md](docs/runbooks/cloudflare-deployment.md); the existing Node/Render runbook remains available for the non-Worker server.
 
 Do not add secrets to this repository. Copy `.env.example` to a local environment and provide an `AUTH_USERNAME`, an scrypt `AUTH_PASSWORD_HASH`, a randomly generated `SESSION_SECRET` of at least 32 bytes, and a server-only Neon `DATABASE_URL` before using the login flow.
 

@@ -6,16 +6,17 @@ import { sendJson, methodNotAllowed } from "../_lib/http.js";
 import { checkRiskRateLimit } from "../_lib/risk/rate-limit.js";
 import { evaluateRisk } from "../_lib/risk/engine.js";
 import { RateLimitUnavailableError } from "../_lib/rate-limit.js";
+import { runtimeEnv } from "../_lib/runtime.js";
 
 function unavailable(response, code = "risk_state_unavailable", status = 503) { return sendJson(response, status, { status: "unavailable", decision: "BLOCKED", code, message: "Risk evaluation is blocked because trusted risk state is unavailable", executionAllowed: false, tradingEnabled: false }); }
 
 export default async function handler(request, response) {
   if (request.method !== "GET") return methodNotAllowed(response, "GET");
-  let config; try { config = loadConfig(); } catch (error) { if (error instanceof ConfigurationError) return unavailable(response, "configuration_invalid"); throw error; }
+  let config; try { config = loadConfig(runtimeEnv(request)); } catch (error) { if (error instanceof ConfigurationError) return unavailable(response, "configuration_invalid"); throw error; }
   if (!config.auth.configured) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   if (!config.database.configured) return unavailable(response, "database_unavailable");
   let db; let session;
-  try { db = getDatabase(); session = await getSession(request, db, config); } catch (error) { if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable"); throw error; }
+  try { db = getDatabase(runtimeEnv(request)); session = await getSession(request, db, config); } catch (error) { if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable"); throw error; }
   if (!session) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   let limit;
   try { limit = await checkRiskRateLimit(db, request, config, session.userId); } catch (error) {
