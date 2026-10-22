@@ -10,17 +10,19 @@ The current build contains the Milestone 1 dashboard and health-check scaffold, 
 
 ## Run locally
 
-Install dependencies before local work. For browser preview, serve the repository root with a Vercel-compatible environment so authentication and `/api/health` can be handled. Opening `index.html` directly shows the authentication shell but cannot authenticate without the API.
+Install dependencies before local work. The application now includes a standard Node.js HTTP server that serves the frontend and delegates API routes to the existing handlers. Opening `index.html` directly shows the authentication shell but cannot authenticate without the API.
 
 ```text
 npm install
 ```
 
-For example, with Node.js 20 or newer and Vercel CLI installed in your own environment:
+Start the local HTTP server with Node.js 20 or newer:
 
 ```text
-vercel dev
+npm start
 ```
+
+The server binds to `0.0.0.0` and uses `PORT` when supplied, otherwise `3000`. Open `http://localhost:3000/`. The Render deployment settings are documented in [docs/runbooks/render-deployment.md](docs/runbooks/render-deployment.md).
 
 Do not add secrets to this repository. Copy `.env.example` to a local environment and provide an `AUTH_USERNAME`, an scrypt `AUTH_PASSWORD_HASH`, a randomly generated `SESSION_SECRET` of at least 32 bytes, and a server-only Neon `DATABASE_URL` before using the login flow.
 
