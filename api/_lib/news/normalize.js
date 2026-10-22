@@ -15,6 +15,15 @@ function timestamp(value, field) {
   return date.toISOString();
 }
 
+function url(value, field) {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || value.length > 2_000) throw new NewsResponseError(`${field} is invalid`);
+  let parsed;
+  try { parsed = new URL(value); } catch { throw new NewsResponseError(`${field} is invalid`); }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.hash) throw new NewsResponseError(`${field} is invalid`);
+  return parsed.toString();
+}
+
 export function normalizeNewsItems(items, { now = new Date(), maxItems = 20 } = {}) {
   if (!Array.isArray(items)) throw new NewsResponseError("News items must be an array");
   const seen = new Set();
@@ -30,7 +39,7 @@ export function normalizeNewsItems(items, { now = new Date(), maxItems = 20 } = 
     const id = text(item.id || `${source}:${publishedAt}:${title}`, "id", 256);
     if (seen.has(id)) continue;
     seen.add(id);
-    normalized.push({ id, title, summary: typeof item.summary === "string" ? item.summary.slice(0, 600) : null, source, publishedAt, eventAt, currencies: currenciesValue, url: null, freshness: { status: new Date(now).getTime() - new Date(publishedAt).getTime() > 86_400_000 ? "stale" : "fresh" } });
+    normalized.push({ id, title, summary: typeof item.summary === "string" ? item.summary.slice(0, 600) : null, source, publishedAt, eventAt, currencies: currenciesValue, url: url(item.url, "url"), freshness: { status: new Date(now).getTime() - new Date(publishedAt).getTime() > 86_400_000 ? "stale" : "fresh" } });
     if (normalized.length >= maxItems) break;
   }
   normalized.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));

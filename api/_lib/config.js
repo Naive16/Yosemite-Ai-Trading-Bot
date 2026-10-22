@@ -25,6 +25,7 @@ const DEFAULT_CLAUDE_MODEL = "claude-3-5-haiku-latest";
 const DEFAULT_CLAUDE_TIMEOUT_MS = 12_000;
 const DEFAULT_CLAUDE_MAX_RETRIES = 1;
 const DEFAULT_CLAUDE_MAX_OUTPUT_TOKENS = 1_200;
+const DEFAULT_BBC_FEED_URL = "https://feeds.bbci.co.uk/news/business/rss.xml";
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3.5-super-vl:free";
 const DEFAULT_AI_RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -93,6 +94,14 @@ function parseHttpUrl(value, key, fallback) {
     throw new ConfigurationError(`${key} must contain only an HTTP(S) origin`);
   }
   return parsed.origin;
+}
+
+function parseFeedUrl(value, key, fallback, httpsOnly = false) {
+  const candidate = value || fallback;
+  let parsed;
+  try { parsed = new URL(candidate); } catch { throw new ConfigurationError(`${key} must be a valid feed URL`); }
+  if (!/^https?:$/.test(parsed.protocol) || (httpsOnly && parsed.protocol !== "https:") || parsed.username || parsed.password || parsed.hash) throw new ConfigurationError(`${key} must be a valid feed URL`);
+  return parsed.toString();
 }
 
 function parseHttpsBaseUrl(value, key, fallback) {
@@ -231,7 +240,7 @@ export function loadConfig(env = process.env) {
   if (openRouterModel.length < 1 || openRouterModel.length > 128 || !/^[A-Za-z0-9._:/-]+$/.test(openRouterModel)) throw new ConfigurationError("OPENROUTER_MODEL is invalid");
   const openRouterBaseUrl = parseHttpsBaseUrl(readEnv(env, "OPENROUTER_BASE_URL"), "OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL);
   const newsProvider = readEnv(env, "NEWS_PROVIDER") || "none";
-  if (!["none", "json"].includes(newsProvider)) throw new ConfigurationError("NEWS_PROVIDER must be none or json");
+  if (!["none", "json", "bbc"].includes(newsProvider)) throw new ConfigurationError("NEWS_PROVIDER must be none, json, or bbc");
   const newsApiKey = readEnv(env, "NEWS_API_KEY");
   if (newsApiKey.length > 512 || /[\u0000-\u001f\u007f]/.test(newsApiKey)) throw new ConfigurationError("NEWS_API_KEY is invalid");
   const riskTimeZone = readEnv(env, "RISK_TIME_ZONE") || DEFAULT_RISK_TIME_ZONE;
@@ -293,7 +302,7 @@ export function loadConfig(env = process.env) {
     }),
     aiProvider,
     openrouter: Object.freeze({ apiKey: openRouterApiKey, model: openRouterModel, baseUrl: openRouterBaseUrl, configured: Boolean(openRouterApiKey), timeoutMs: parsePositiveInteger(readEnv(env, "OPENROUTER_TIMEOUT_MS"), "OPENROUTER_TIMEOUT_MS", 1_000, 30_000, DEFAULT_CLAUDE_TIMEOUT_MS), maxRetries: 0, maxOutputTokens: parsePositiveInteger(readEnv(env, "OPENROUTER_MAX_OUTPUT_TOKENS"), "OPENROUTER_MAX_OUTPUT_TOKENS", 256, 2_000, DEFAULT_CLAUDE_MAX_OUTPUT_TOKENS) }),
-    news: Object.freeze({ provider: newsProvider, apiKey: newsApiKey, feedUrl: parseHttpUrl(readEnv(env, "NEWS_FEED_URL"), "NEWS_FEED_URL", "http://localhost:3000"), configured: newsProvider !== "none" && Boolean(newsApiKey) }),
+    news: Object.freeze({ provider: newsProvider, apiKey: newsApiKey, feedUrl: newsProvider === "bbc" ? parseFeedUrl(readEnv(env, "NEWS_FEED_URL"), "NEWS_FEED_URL", DEFAULT_BBC_FEED_URL, true) : parseHttpUrl(readEnv(env, "NEWS_FEED_URL"), "NEWS_FEED_URL", "http://localhost:3000"), configured: newsProvider === "bbc" ? Boolean(readEnv(env, "NEWS_FEED_URL") || DEFAULT_BBC_FEED_URL) : newsProvider !== "none" && Boolean(newsApiKey) }),
     risk: Object.freeze({
       version: "risk-baseline-v1",
       maxEquityRiskFraction: parseBoundedNumber(readEnv(env, "RISK_MAX_EQUITY_FRACTION"), "RISK_MAX_EQUITY_FRACTION", 0.0001, 0.01, DEFAULT_RISK_MAX_EQUITY_RISK_FRACTION),
