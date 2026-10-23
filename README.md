@@ -34,6 +34,8 @@ Generate a password hash locally with:
 npm run hash-password
 ```
 
+Enter and confirm a 12-256 character password in a local terminal; input stays hidden. Password arguments and piped input are rejected. Prompts and errors go to stderr; stdout contains only the resulting hash. The project npm configuration suppresses npm's script banner. The script reuses the login system's scrypt implementation with a fresh 16-byte random salt, a 64-byte key, and `N=16384`, `r=8`, `p=1`. Its format is `scrypt$N$r$p$salt$digest`, with base64url salt and digest fields. Keep the result in ignored local environment configuration; never save passwords or generated hashes in source, tests, documentation, or tracked files.
+
 Run the additive migration script only after reviewing it and configuring a direct database URL:
 
 ```text
