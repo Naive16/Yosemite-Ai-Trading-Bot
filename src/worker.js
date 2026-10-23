@@ -1,24 +1,4 @@
-import healthHandler from "../api/health.js";
-import loginHandler from "../api/auth/login.js";
-import meHandler from "../api/auth/me.js";
-import logoutHandler from "../api/auth/logout.js";
-import statusHandler from "../api/private/status.js";
-import operationsHandler from "../api/private/operations.js";
-import marketDataHandler from "../api/private/market-data.js";
-import strategyHandler from "../api/private/strategy.js";
-import analysisHandler from "../api/private/analysis.js";
-import riskHandler from "../api/private/risk.js";
-import proposalsHandler from "../api/private/proposals.js";
-import backtestHandler from "../api/private/backtest.js";
-import paperHandler from "../api/private/paper.js";
-
-const MAX_REQUEST_BODY_BYTES = 64 * 1024;
-const routes = Object.freeze([
-  ["GET /api/health", healthHandler], ["POST /api/auth/login", loginHandler], ["GET /api/auth/me", meHandler], ["POST /api/auth/logout", logoutHandler],
-  ["GET /api/private/status", statusHandler], ["GET /api/private/operations", operationsHandler], ["GET /api/private/market-data", marketDataHandler], ["GET /api/private/strategy", strategyHandler],
-  ["GET /api/private/analysis", analysisHandler], ["GET /api/private/risk", riskHandler], ["GET /api/private/proposals", proposalsHandler], ["POST /api/private/proposals", proposalsHandler],
-  ["GET /api/private/backtest", backtestHandler], ["POST /api/private/backtest", backtestHandler], ["GET /api/private/paper", paperHandler], ["POST /api/private/paper", paperHandler]
-]);
+import { MAX_REQUEST_BODY_BYTES, routes } from "../api/_lib/worker/routes.js";
 
 function responseAdapter() {
   let statusCode = 200; const headers = new Headers(); let body = null;
@@ -67,5 +47,3 @@ export default {
     return assetResponse.status === 404 ? errorResponse(404, "Resource not found") : assetResponse;
   }
 };
-
-export { routes, MAX_REQUEST_BODY_BYTES };
