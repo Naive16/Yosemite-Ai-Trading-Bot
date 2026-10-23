@@ -12,25 +12,3 @@
   },
   "observability": { "enabled": true, "traces": { "enabled": true } }
 }
-
-{
-  // ...
-  "vars": {
-    "AI_PROVIDER": "openrouter",
-    "APP_ENV": "production",
-    "AUTH_USERNAME": "Alice",
-    "LIVE_TRADING_ENABLED": "false",
-    "MARKET_DATA_PROVIDER": "twelvedata",
-    "MT5_CONNECTOR": "none",
-    "MT5_DEMO_MODE": "false",
-    "MT5_EXECUTION_ENABLED": "false",
-    "NEWS_PROVIDER": "bbc",
-    "OPENROUTER_MODEL": "nvidia/nemotron-3.5-super-vl:free",
-    "SESSION_SECRET": "WSrs0oX4j_v7GzWrylZ_4fNN5WCzJ8PEOPKfl6Ew4b4",
-    "TRADING_MODE": "disabled",
-    "TRUSTED_PROXY_MODE": "none",
-    "TWELVE_DATA_API_KEY": "45e7dd54dd1d4ee7bc503d7456f92083",
-    "WORKER_ENABLED": "false"
-  },
-  // ...
-}
