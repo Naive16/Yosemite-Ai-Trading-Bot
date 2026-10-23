@@ -1,0 +1,26 @@
+# Defense-in-depth exclusions for Cloudflare Workers Static Assets (per docs/runbooks/cloudflare-deployment.md)
+/api/
+/db/
+/dist/
+/docs/
+/node_modules/
+/scripts/
+/tests/
+/.git/
+/.wrangler/
+/package.json
+/package-lock.json
+/render-deployment.md
+/render.yaml
+/server.js
+/server.test.mjs
+/vercel.json
+/wrangler.jsonc
+/README.md
+/src/worker.js
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+*.log
+*.map
