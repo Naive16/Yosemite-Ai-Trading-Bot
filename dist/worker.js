@@ -1,48 +1,6 @@
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
-// api/_lib/http.js
-function header(request, name) {
-  const headers = request?.headers || {};
-  const expected = name.toLowerCase();
-  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === expected);
-  const value = key ? headers[key] : "";
-  return Array.isArray(value) ? value[0] || "" : String(value || "");
-}
-__name(header, "header");
-function setSecurityHeaders(response) {
-  response.setHeader("Cache-Control", "no-store");
-  response.setHeader("X-Content-Type-Options", "nosniff");
-  response.setHeader("X-Frame-Options", "DENY");
-  response.setHeader("Referrer-Policy", "no-referrer");
-  response.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
-}
-__name(setSecurityHeaders, "setSecurityHeaders");
-function sendJson(response, status, body, extraHeaders = {}) {
-  setSecurityHeaders(response);
-  response.setHeader("Content-Type", "application/json; charset=utf-8");
-  Object.entries(extraHeaders).forEach(([name, value]) => response.setHeader(name, value));
-  return response.status(status).json(body);
-}
-__name(sendJson, "sendJson");
-function methodNotAllowed(response, allowed) {
-  response.setHeader("Allow", allowed);
-  return sendJson(response, 405, { status: "error", message: "Method not allowed" });
-}
-__name(methodNotAllowed, "methodNotAllowed");
-function setSessionCookie(response, token, maxAgeSeconds, secure) {
-  const flags = ["Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${maxAgeSeconds}`];
-  if (secure) flags.push("Secure");
-  response.setHeader("Set-Cookie", `yosemite_session=${token}; ${flags.join("; ")}`);
-}
-__name(setSessionCookie, "setSessionCookie");
-function clearSessionCookie(response, secure) {
-  const flags = ["Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0", "Expires=Thu, 01 Jan 1970 00:00:00 GMT"];
-  if (secure) flags.push("Secure");
-  response.setHeader("Set-Cookie", `yosemite_session=; ${flags.join("; ")}`);
-}
-__name(clearSessionCookie, "clearSessionCookie");
-
 // api/_lib/config.js
 var DEFAULT_APP_ORIGIN = "http://localhost:3000";
 var DEFAULT_SESSION_TTL_SECONDS = 1800;
@@ -376,6 +334,48 @@ var configDefaults = Object.freeze({
   rateLimitWindowSeconds: DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
   rateLimitMaxAttempts: DEFAULT_RATE_LIMIT_MAX_ATTEMPTS
 });
+
+// api/_lib/http.js
+function header(request, name) {
+  const headers = request?.headers || {};
+  const expected = name.toLowerCase();
+  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === expected);
+  const value = key ? headers[key] : "";
+  return Array.isArray(value) ? value[0] || "" : String(value || "");
+}
+__name(header, "header");
+function setSecurityHeaders(response) {
+  response.setHeader("Cache-Control", "no-store");
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("X-Frame-Options", "DENY");
+  response.setHeader("Referrer-Policy", "no-referrer");
+  response.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+}
+__name(setSecurityHeaders, "setSecurityHeaders");
+function sendJson(response, status, body, extraHeaders = {}) {
+  setSecurityHeaders(response);
+  response.setHeader("Content-Type", "application/json; charset=utf-8");
+  Object.entries(extraHeaders).forEach(([name, value]) => response.setHeader(name, value));
+  return response.status(status).json(body);
+}
+__name(sendJson, "sendJson");
+function methodNotAllowed(response, allowed) {
+  response.setHeader("Allow", allowed);
+  return sendJson(response, 405, { status: "error", message: "Method not allowed" });
+}
+__name(methodNotAllowed, "methodNotAllowed");
+function setSessionCookie(response, token, maxAgeSeconds, secure) {
+  const flags = ["Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${maxAgeSeconds}`];
+  if (secure) flags.push("Secure");
+  response.setHeader("Set-Cookie", `yosemite_session=${token}; ${flags.join("; ")}`);
+}
+__name(setSessionCookie, "setSessionCookie");
+function clearSessionCookie(response, secure) {
+  const flags = ["Path=/", "HttpOnly", "SameSite=Lax", "Max-Age=0", "Expires=Thu, 01 Jan 1970 00:00:00 GMT"];
+  if (secure) flags.push("Secure");
+  response.setHeader("Set-Cookie", `yosemite_session=; ${flags.join("; ")}`);
+}
+__name(clearSessionCookie, "clearSessionCookie");
 
 // api/health.js
 var foundationResponse = /* @__PURE__ */ __name((config = null) => ({
@@ -8441,17 +8441,25 @@ function responseAdapter() {
   let statusCode = 200;
   const headers = new Headers();
   let body = null;
-  return { status(code) {
-    statusCode = code;
-    return this;
-  }, setHeader(name, value) {
-    headers.set(name, String(value));
-  }, json(value) {
-    body = JSON.stringify(value);
-    return this;
-  }, toResponse() {
-    return new Response(body, { status: statusCode, headers });
-  } };
+  return {
+    status(code) {
+      statusCode = code;
+      return this;
+    },
+    setHeader(name, value) {
+      headers.set(name, String(value));
+    },
+    json(value) {
+      body = JSON.stringify(value);
+      return this;
+    },
+    statusCode() {
+      return statusCode;
+    },
+    toResponse() {
+      return new Response(body, { status: statusCode, headers });
+    }
+  };
 }
 __name(responseAdapter, "responseAdapter");
 function errorResponse(status, message) {
@@ -8475,6 +8483,34 @@ function requestHeaders(request) {
   return headers;
 }
 __name(requestHeaders, "requestHeaders");
+async function resolveRuntimeEnv(env) {
+  if (!env || typeof env !== "object") return {};
+  const resolved = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (key !== "ASSETS" && value && typeof value === "object" && typeof value.get === "function") {
+      try {
+        const secretValue = await value.get();
+        if (typeof secretValue === "string") resolved[key] = secretValue;
+      } catch {
+      }
+    } else {
+      resolved[key] = value;
+    }
+  }
+  return resolved;
+}
+__name(resolveRuntimeEnv, "resolveRuntimeEnv");
+function logSafeConfigDiagnostics(resolvedEnv, pathname) {
+  try {
+    loadConfig(resolvedEnv);
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      const configuredKeys = Object.keys(resolvedEnv).filter((key) => key !== "ASSETS" && typeof resolvedEnv[key] === "string" && resolvedEnv[key].trim() !== "").sort();
+      console.error(JSON.stringify({ event: "worker.config_validation_failed", path: pathname, reason: error.message, configuredKeys }));
+    }
+  }
+}
+__name(logSafeConfigDiagnostics, "logSafeConfigDiagnostics");
 function routeFor(request) {
   return routes.find(([key]) => key === `${request.method} ${new URL(request.url).pathname}`)?.[1] || null;
 }
@@ -8489,9 +8525,11 @@ var worker_default = {
         return allowed.length ? errorResponse(405, "Method not allowed") : errorResponse(404, "API route not found");
       }
       try {
-        const adaptedRequest = { method: request.method, url: request.url, headers: requestHeaders(request), body: await readBody(request), runtimeEnv: env };
+        const runtimeEnv2 = await resolveRuntimeEnv(env);
+        const adaptedRequest = { method: request.method, url: request.url, headers: requestHeaders(request), body: await readBody(request), runtimeEnv: runtimeEnv2 };
         const adaptedResponse = responseAdapter();
         await handler14(adaptedRequest, adaptedResponse);
+        if (adaptedResponse.statusCode() === 503) logSafeConfigDiagnostics(runtimeEnv2, url2.pathname);
         return adaptedResponse.toResponse();
       } catch (error) {
         return error?.message === "BODY_TOO_LARGE" ? errorResponse(413, "Request body is too large") : errorResponse(500, "Internal server error");

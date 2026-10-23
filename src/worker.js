@@ -1,8 +1,15 @@
+import { ConfigurationError, loadConfig } from "../api/_lib/config.js";
 import { MAX_REQUEST_BODY_BYTES, routes } from "../api/_lib/worker/routes.js";
 
 function responseAdapter() {
   let statusCode = 200; const headers = new Headers(); let body = null;
-  return { status(code) { statusCode = code; return this; }, setHeader(name, value) { headers.set(name, String(value)); }, json(value) { body = JSON.stringify(value); return this; }, toResponse() { return new Response(body, { status: statusCode, headers }); } };
+  return {
+    status(code) { statusCode = code; return this; },
+    setHeader(name, value) { headers.set(name, String(value)); },
+    json(value) { body = JSON.stringify(value); return this; },
+    statusCode() { return statusCode; },
+    toResponse() { return new Response(body, { status: statusCode, headers }); }
+  };
 }
 
 function errorResponse(status, message) {
@@ -25,6 +32,37 @@ function requestHeaders(request) {
   return headers;
 }
 
+async function resolveRuntimeEnv(env) {
+  if (!env || typeof env !== "object") return {};
+  const resolved = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (key !== "ASSETS" && value && typeof value === "object" && typeof value.get === "function") {
+      try {
+        const secretValue = await value.get();
+        if (typeof secretValue === "string") resolved[key] = secretValue;
+      } catch {
+        // Leave unset so downstream configuration fails closed safely.
+      }
+    } else {
+      resolved[key] = value;
+    }
+  }
+  return resolved;
+}
+
+function logSafeConfigDiagnostics(resolvedEnv, pathname) {
+  try {
+    loadConfig(resolvedEnv);
+  } catch (error) {
+    if (error instanceof ConfigurationError) {
+      const configuredKeys = Object.keys(resolvedEnv)
+        .filter((key) => key !== "ASSETS" && typeof resolvedEnv[key] === "string" && resolvedEnv[key].trim() !== "")
+        .sort();
+      console.error(JSON.stringify({ event: "worker.config_validation_failed", path: pathname, reason: error.message, configuredKeys }));
+    }
+  }
+}
+
 function routeFor(request) { return routes.find(([key]) => key === `${request.method} ${new URL(request.url).pathname}`)?.[1] || null; }
 
 export default {
@@ -37,8 +75,12 @@ export default {
         return allowed.length ? errorResponse(405, "Method not allowed") : errorResponse(404, "API route not found");
       }
       try {
-        const adaptedRequest = { method: request.method, url: request.url, headers: requestHeaders(request), body: await readBody(request), runtimeEnv: env };
-        const adaptedResponse = responseAdapter(); await handler(adaptedRequest, adaptedResponse); return adaptedResponse.toResponse();
+        const runtimeEnv = await resolveRuntimeEnv(env);
+        const adaptedRequest = { method: request.method, url: request.url, headers: requestHeaders(request), body: await readBody(request), runtimeEnv };
+        const adaptedResponse = responseAdapter();
+        await handler(adaptedRequest, adaptedResponse);
+        if (adaptedResponse.statusCode() === 503) logSafeConfigDiagnostics(runtimeEnv, url.pathname);
+        return adaptedResponse.toResponse();
       } catch (error) { return error?.message === "BODY_TOO_LARGE" ? errorResponse(413, "Request body is too large") : errorResponse(500, "Internal server error"); }
     }
     if (request.method !== "GET" && request.method !== "HEAD") return errorResponse(405, "Method not allowed");
