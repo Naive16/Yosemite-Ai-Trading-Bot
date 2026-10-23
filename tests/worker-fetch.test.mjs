@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker, { routes } from "../src/worker.js";
+import * as workerModule from "../src/worker.js";
+import worker from "../src/worker.js";
+import { routes } from "../api/_lib/worker/routes.js";
 
 const env = {
   APP_ENV: "test",
@@ -9,6 +11,11 @@ const env = {
   LIVE_TRADING_ENABLED: "false",
   ASSETS: { fetch: async () => new Response("<html>Yosemite AI</html>", { status: 200, headers: { "Content-Type": "text/html" } }) }
 };
+
+test("Worker entrypoint exports only default handler for workerd compatibility", () => {
+  assert.deepEqual(Object.keys(workerModule), ["default"]);
+  assert.equal(typeof worker.fetch, "function");
+});
 
 test("Worker maps the health endpoint through Fetch API adapters", async () => {
   const response = await worker.fetch(new Request("http://localhost/api/health"), env);

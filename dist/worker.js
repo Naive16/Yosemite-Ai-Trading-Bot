@@ -8415,7 +8415,7 @@ async function handler13(request, response) {
 }
 __name(handler13, "handler");
 
-// src/worker.js
+// api/_lib/worker/routes.js
 var MAX_REQUEST_BODY_BYTES = 64 * 1024;
 var routes = Object.freeze([
   ["GET /api/health", handler],
@@ -8435,6 +8435,8 @@ var routes = Object.freeze([
   ["GET /api/private/paper", handler13],
   ["POST /api/private/paper", handler13]
 ]);
+
+// src/worker.js
 function responseAdapter() {
   let statusCode = 200;
   const headers = new Headers();
@@ -8502,9 +8504,7 @@ var worker_default = {
   }
 };
 export {
-  MAX_REQUEST_BODY_BYTES,
-  worker_default as default,
-  routes
+  worker_default as default
 };
 /*! Bundled license information:
 

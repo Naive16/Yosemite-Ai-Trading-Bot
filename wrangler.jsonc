@@ -4,6 +4,17 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-10-22",
   "compatibility_flags": ["nodejs_compat"],
+  "keep_vars": true,
+  "vars": {
+    "APP_ENV": "production",
+    "TRADING_MODE": "disabled",
+    "LIVE_TRADING_ENABLED": "false",
+    "WORKER_ENABLED": "false",
+    "MT5_EXECUTION_ENABLED": "false",
+    "MT5_DEMO_MODE": "false",
+    "MT5_CONNECTOR": "none",
+    "TRUSTED_PROXY_MODE": "none"
+  },
   "assets": {
     "directory": "src",
     "binding": "ASSETS",
