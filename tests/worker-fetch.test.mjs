@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as workerModule from "../src/worker.js";
@@ -29,15 +30,60 @@ test("Worker resolves Cloudflare Secrets Store async bindings into runtimeEnv", 
   const secretsStoreEnv = {
     ...env,
     APP_ENV: "production",
-    APP_ORIGIN: "https://yosemite.example.workers.dev",
+    APP_ORIGIN: "https://yosemite-ai-trading-bot.francismkanda01.workers.dev",
     AUTH_USERNAME: { async get() { return "Alice"; } },
     AUTH_PASSWORD_HASH: { async get() { return pwHash; } },
     SESSION_SECRET: { async get() { return "x".repeat(40); } },
     DATABASE_URL: { async get() { return "postgresql://user:pass@ep-example-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"; } }
   };
-  const response = await worker.fetch(new Request("https://yosemite.example.workers.dev/api/auth/me"), secretsStoreEnv);
+  const response = await worker.fetch(new Request("https://yosemite-ai-trading-bot.francismkanda01.workers.dev/api/auth/me"), secretsStoreEnv);
   assert.equal(response.status, 401);
   assert.deepEqual(await response.json(), { status: "error", message: "Authentication required" });
+});
+
+test("Worker logs missingRequiredKeys and failedSecretBindings without exposing secret values", async () => {
+  const secretHash = await hashPassword("never-log-this-secret-password", { N: 1024, r: 1, p: 1 });
+  const secretDbUrl = "postgresql://user:ultra-secret-db-pass@ep-example-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require";
+  const incompleteEnv = {
+    ...env,
+    APP_ENV: "production",
+    APP_ORIGIN: "https://yosemite-ai-trading-bot.francismkanda01.workers.dev",
+    AUTH_PASSWORD_HASH: secretHash,
+    DATABASE_URL: secretDbUrl,
+    SESSION_SECRET: { async get() { throw new Error("Secret not found"); } }
+  };
+
+  const capturedErrors = [];
+  const originalConsoleError = console.error;
+  console.error = (...args) => capturedErrors.push(args.join(" "));
+  try {
+    const response = await worker.fetch(new Request("https://yosemite-ai-trading-bot.francismkanda01.workers.dev/api/auth/me"), incompleteEnv);
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { status: "error", message: "Authentication is not configured" });
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(capturedErrors.length, 1);
+  assert.equal(capturedErrors[0].includes(secretHash), false);
+  assert.equal(capturedErrors[0].includes("ultra-secret-db-pass"), false);
+  const diagnostic = JSON.parse(capturedErrors[0]);
+  assert.equal(diagnostic.event, "worker.config_validation_failed");
+  assert.equal(diagnostic.reason, "AUTH_USERNAME and AUTH_PASSWORD_HASH are required in production");
+  assert.deepEqual(diagnostic.missingRequiredKeys, ["AUTH_USERNAME", "SESSION_SECRET"]);
+  assert.deepEqual(diagnostic.failedSecretBindings, ["SESSION_SECRET"]);
+});
+
+test("wrangler.jsonc preserves production origin, keep_vars, observability logs, and disabled trading flags", () => {
+  const wranglerConfig = JSON.parse(fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
+  assert.equal(wranglerConfig.keep_vars, true);
+  assert.equal(wranglerConfig.vars.APP_ENV, "production");
+  assert.equal(wranglerConfig.vars.APP_ORIGIN, "https://yosemite-ai-trading-bot.francismkanda01.workers.dev");
+  assert.equal(wranglerConfig.vars.TRADING_MODE, "disabled");
+  assert.equal(wranglerConfig.vars.LIVE_TRADING_ENABLED, "false");
+  assert.equal(wranglerConfig.vars.WORKER_ENABLED, "false");
+  assert.equal(wranglerConfig.vars.MT5_EXECUTION_ENABLED, "false");
+  assert.equal(wranglerConfig.observability?.logs?.enabled, true);
 });
 
 test("Worker routes preserve unsupported-method and unknown-route behavior", async () => {

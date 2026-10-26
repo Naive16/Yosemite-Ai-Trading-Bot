@@ -8437,6 +8437,13 @@ var routes = Object.freeze([
 ]);
 
 // src/worker.js
+var REQUIRED_PRODUCTION_KEYS = Object.freeze([
+  "APP_ORIGIN",
+  "AUTH_PASSWORD_HASH",
+  "AUTH_USERNAME",
+  "DATABASE_URL",
+  "SESSION_SECRET"
+]);
 function responseAdapter() {
   let statusCode = 200;
   const headers = new Headers();
@@ -8484,29 +8491,40 @@ function requestHeaders(request) {
 }
 __name(requestHeaders, "requestHeaders");
 async function resolveRuntimeEnv(env) {
-  if (!env || typeof env !== "object") return {};
+  if (!env || typeof env !== "object") return { runtimeEnv: {}, failedSecretBindings: [] };
   const resolved = {};
+  const failedSecretBindings = [];
   for (const [key, value] of Object.entries(env)) {
     if (key !== "ASSETS" && value && typeof value === "object" && typeof value.get === "function") {
       try {
         const secretValue = await value.get();
         if (typeof secretValue === "string") resolved[key] = secretValue;
       } catch {
+        failedSecretBindings.push(key);
       }
     } else {
       resolved[key] = value;
     }
   }
-  return resolved;
+  return { runtimeEnv: resolved, failedSecretBindings: failedSecretBindings.sort() };
 }
 __name(resolveRuntimeEnv, "resolveRuntimeEnv");
-function logSafeConfigDiagnostics(resolvedEnv, pathname) {
+function logSafeConfigDiagnostics(resolvedEnv, pathname, failedSecretBindings = []) {
   try {
     loadConfig(resolvedEnv);
   } catch (error) {
     if (error instanceof ConfigurationError) {
       const configuredKeys = Object.keys(resolvedEnv).filter((key) => key !== "ASSETS" && typeof resolvedEnv[key] === "string" && resolvedEnv[key].trim() !== "").sort();
-      console.error(JSON.stringify({ event: "worker.config_validation_failed", path: pathname, reason: error.message, configuredKeys }));
+      const isProduction = typeof resolvedEnv.APP_ENV === "string" && resolvedEnv.APP_ENV.trim() === "production";
+      const missingRequiredKeys = isProduction ? REQUIRED_PRODUCTION_KEYS.filter((key) => !configuredKeys.includes(key)) : [];
+      console.error(JSON.stringify({
+        event: "worker.config_validation_failed",
+        path: pathname,
+        reason: error.message,
+        configuredKeys,
+        missingRequiredKeys,
+        failedSecretBindings
+      }));
     }
   }
 }
@@ -8525,11 +8543,11 @@ var worker_default = {
         return allowed.length ? errorResponse(405, "Method not allowed") : errorResponse(404, "API route not found");
       }
       try {
-        const runtimeEnv2 = await resolveRuntimeEnv(env);
+        const { runtimeEnv: runtimeEnv2, failedSecretBindings } = await resolveRuntimeEnv(env);
         const adaptedRequest = { method: request.method, url: request.url, headers: requestHeaders(request), body: await readBody(request), runtimeEnv: runtimeEnv2 };
         const adaptedResponse = responseAdapter();
         await handler14(adaptedRequest, adaptedResponse);
-        if (adaptedResponse.statusCode() === 503) logSafeConfigDiagnostics(runtimeEnv2, url2.pathname);
+        if (adaptedResponse.statusCode() === 503) logSafeConfigDiagnostics(runtimeEnv2, url2.pathname, failedSecretBindings);
         return adaptedResponse.toResponse();
       } catch (error) {
         return error?.message === "BODY_TOO_LARGE" ? errorResponse(413, "Request body is too large") : errorResponse(500, "Internal server error");
