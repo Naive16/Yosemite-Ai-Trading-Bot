@@ -10,6 +10,7 @@
     "worker:dev": "wrangler dev",
     "worker:build": "wrangler deploy --dry-run --outdir=dist",
     "worker:test": "node --test tests/worker-fetch.test.mjs",
+    "hyperdrive:disable-cache": "wrangler hyperdrive update 395fd2032d8441759f4a8d6a641e7eec --caching-disabled",
     "migrate": "node scripts/migrate.mjs",
     "migrate:data:dry-run": "node scripts/migrate-neon-to-supabase.mjs",
     "test": "node --test",

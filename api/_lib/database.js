@@ -1,5 +1,5 @@
 import pg from "pg";
-import { loadConfig } from "./config.js";
+import { isHyperdriveHostname, loadConfig } from "./config.js";
 
 const { Client, Pool } = pg;
 
@@ -74,22 +74,24 @@ export function buildPgClientConfig(connectionString, { queryTimeoutMs = 5_000 }
     throw new DatabaseConfigurationError("DATABASE_URL must be a valid PostgreSQL connection URL");
   }
 
+  const hyperdriveHost = isHyperdriveHostname(parsed.hostname);
   const rawSslMode = (parsed.searchParams.get("sslmode") || "").trim().toLowerCase();
-  const effectiveSslMode = rawSslMode || (isLocalHostname(parsed.hostname) ? "prefer" : "require");
+  const effectiveSslMode = rawSslMode || (isLocalHostname(parsed.hostname) ? "prefer" : "verify-full");
 
   parsed.searchParams.delete("sslmode");
   parsed.searchParams.delete("pgbouncer");
   parsed.searchParams.delete("uselibpqcompat");
 
   let ssl;
-  if (effectiveSslMode === "disable" || (effectiveSslMode === "prefer" && isLocalHostname(parsed.hostname))) {
+  if (hyperdriveHost || effectiveSslMode === "disable" || (effectiveSslMode === "prefer" && isLocalHostname(parsed.hostname))) {
     ssl = false;
-  } else if (effectiveSslMode === "verify-full" || effectiveSslMode === "verify-ca") {
-    ssl = isSupabaseHostname(parsed.hostname)
+  } else {
+    const baseTlsConfig = isSupabaseHostname(parsed.hostname)
       ? { rejectUnauthorized: true, ca: SUPABASE_ROOT_2021_CA_PEM }
       : { rejectUnauthorized: true };
-  } else {
-    ssl = { rejectUnauthorized: false };
+    ssl = effectiveSslMode === "verify-ca"
+      ? Object.freeze({ ...baseTlsConfig, checkServerIdentity: () => undefined })
+      : Object.freeze(baseTlsConfig);
   }
 
   return Object.freeze({
@@ -173,7 +175,7 @@ export function createDatabaseClient(config, driver = null, options = {}) {
         return runSqlTransaction((text, values) => customExecutor.query(text, values), timeoutMs, callback);
       },
       async ping() {
-        await this.query("SELECT 1 AS ok", []);
+        await this.query("SELECT 1 AS ok WHERE clock_timestamp() IS NOT NULL", []);
         return true;
       },
       async close() {
@@ -211,7 +213,7 @@ export function createDatabaseClient(config, driver = null, options = {}) {
         }
       },
       async ping() {
-        await this.query("SELECT 1 AS ok", []);
+        await this.query("SELECT 1 AS ok WHERE clock_timestamp() IS NOT NULL", []);
         return true;
       },
       async close() {}
@@ -241,7 +243,7 @@ export function createDatabaseClient(config, driver = null, options = {}) {
       }
     },
     async ping() {
-      await this.query("SELECT 1 AS ok", []);
+      await this.query("SELECT 1 AS ok WHERE clock_timestamp() IS NOT NULL", []);
       return true;
     },
     async close() {

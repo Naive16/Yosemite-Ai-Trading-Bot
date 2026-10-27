@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import handler, { foundationResponse } from "../api/health.js";
+import { clearDatabaseTestOverride, setDatabaseForTests } from "../api/_lib/database.js";
 
 function responseDouble() {
   return {
@@ -36,4 +37,38 @@ test("health endpoint rejects non-GET requests", () => {
   assert.equal(response.statusCode, 405);
   assert.equal(response.headers.Allow, "GET");
   assert.equal(response.body.status, "error");
+});
+
+test("health endpoint supports optional database connectivity probe without leaking secrets", async () => {
+  const runtimeEnv = {
+    APP_ENV: "test",
+    DATABASE_URL: "postgresql://postgres.ref:top-secret-pass@395fd2032d8441759f4a8d6a641e7eec.hyperdrive.local:5432/postgres?sslmode=disable"
+  };
+  let pingCalls = 0;
+  setDatabaseForTests({
+    async ping() {
+      pingCalls += 1;
+      return true;
+    }
+  });
+  try {
+    const okRes = responseDouble();
+    await handler({ method: "GET", url: "http://localhost/api/health?probe=database", runtimeEnv }, okRes);
+    assert.equal(okRes.statusCode, 200);
+    assert.equal(okRes.body.services.database, "operational");
+    assert.equal(pingCalls, 1);
+
+    setDatabaseForTests({
+      async ping() {
+        throw new Error("postgresql://postgres.ref:top-secret-pass@host/postgres connection refused");
+      }
+    });
+    const failRes = responseDouble();
+    await handler({ method: "GET", url: "http://localhost/api/health?probe=database", runtimeEnv }, failRes);
+    assert.equal(failRes.statusCode, 200);
+    assert.equal(failRes.body.services.database, "unavailable");
+    assert.equal(JSON.stringify(failRes.body).includes("top-secret-pass"), false);
+  } finally {
+    clearDatabaseTestOverride();
+  }
 });

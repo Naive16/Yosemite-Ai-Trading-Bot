@@ -5,6 +5,12 @@
   "compatibility_date": "2026-10-22",
   "compatibility_flags": ["nodejs_compat"],
   "keep_vars": true,
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "395fd2032d8441759f4a8d6a641e7eec"
+    }
+  ],
   "vars": {
     "APP_ENV": "production",
     "APP_ORIGIN": "https://yosemite-ai-trading-bot.francismkanda01.workers.dev",

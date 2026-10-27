@@ -50,6 +50,9 @@ export function inspectDeploymentConfig(env = process.env) {
   if (config.database.url && isLegacyNeonDatabaseUrl(config.database.url)) {
     failures.push("DATABASE_URL points to a legacy Neon host; configure your Supabase PostgreSQL URL");
   }
+  if (config.database.hyperdrive) {
+    warnings.push("Ensure Cloudflare Hyperdrive query caching remains disabled (--caching-disabled) for transactional session and rate-limit consistency");
+  }
   if (!config.database.directUrl) {
     warnings.push("DIRECT_URL (or DATABASE_URL_UNPOOLED) is not configured; migrations require a Supabase Session Mode (:5432) or Direct (:5432) PostgreSQL URL");
   }

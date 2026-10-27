@@ -11,12 +11,13 @@ const REQUIRED_PRODUCTION_KEYS = Object.freeze([
 ]);
 
 function responseAdapter() {
-  let statusCode = 200; const headers = new Headers(); let body = null;
+  let statusCode = 200; const headers = new Headers(); let body = null; let jsonPayload = null;
   return {
     status(code) { statusCode = code; return this; },
     setHeader(name, value) { headers.set(name, String(value)); },
-    json(value) { body = JSON.stringify(value); return this; },
+    json(value) { jsonPayload = value; body = JSON.stringify(value); return this; },
     statusCode() { return statusCode; },
+    payloadCode() { return typeof jsonPayload?.code === "string" ? jsonPayload.code : ""; },
     toResponse() { return new Response(body, { status: statusCode, headers }); }
   };
 }
@@ -41,12 +42,28 @@ function requestHeaders(request) {
   return headers;
 }
 
+function extractHyperdriveConnectionString(value) {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object" && typeof value.connectionString === "string") {
+    return value.connectionString.trim();
+  }
+  return "";
+}
+
 async function resolveRuntimeEnv(env) {
   if (!env || typeof env !== "object") return { runtimeEnv: {}, failedSecretBindings: [] };
   const resolved = {};
   const failedSecretBindings = [];
+  let hyperdriveConnectionString = "";
+
   for (const [key, value] of Object.entries(env)) {
-    if (key !== "ASSETS" && value && typeof value === "object" && typeof value.get === "function") {
+    if (key === "HYPERDRIVE") {
+      const connStr = extractHyperdriveConnectionString(value);
+      if (connStr) {
+        hyperdriveConnectionString = connStr;
+        resolved.HYPERDRIVE = connStr;
+      }
+    } else if (key !== "ASSETS" && value && typeof value === "object" && typeof value.get === "function") {
       try {
         const secretValue = await value.get();
         if (typeof secretValue === "string") resolved[key] = secretValue;
@@ -54,20 +71,29 @@ async function resolveRuntimeEnv(env) {
         failedSecretBindings.push(key);
       }
     } else if (key !== "ASSETS" && value && typeof value === "object" && typeof value.connectionString === "string") {
-      resolved[key] = value.connectionString;
-      if (key === "HYPERDRIVE" && !resolved.DATABASE_URL && typeof env.DATABASE_URL !== "string") {
-        resolved.DATABASE_URL = value.connectionString;
-      }
+      const connStr = value.connectionString.trim();
+      if (connStr) resolved[key] = connStr;
     } else {
       resolved[key] = value;
     }
   }
+
+  if (hyperdriveConnectionString) {
+    resolved.DATABASE_URL = hyperdriveConnectionString;
+  }
+
   return { runtimeEnv: resolved, failedSecretBindings: failedSecretBindings.sort() };
 }
 
-function logSafeConfigDiagnostics(resolvedEnv, pathname, failedSecretBindings = []) {
+function logSafeConfigDiagnostics(resolvedEnv, pathname, failedSecretBindings = [], responseCode = "") {
   try {
     loadConfig(resolvedEnv);
+    console.error(JSON.stringify({
+      event: "worker.service_unavailable",
+      path: pathname,
+      code: responseCode || "service_unavailable",
+      hyperdriveBound: Boolean(resolvedEnv.HYPERDRIVE)
+    }));
   } catch (error) {
     if (error instanceof ConfigurationError) {
       const configuredKeys = Object.keys(resolvedEnv)
@@ -105,7 +131,9 @@ export default {
         const adaptedRequest = { method: request.method, url: request.url, headers: requestHeaders(request), body: await readBody(request), runtimeEnv };
         const adaptedResponse = responseAdapter();
         await handler(adaptedRequest, adaptedResponse);
-        if (adaptedResponse.statusCode() === 503) logSafeConfigDiagnostics(runtimeEnv, url.pathname, failedSecretBindings);
+        if (adaptedResponse.statusCode() === 503) {
+          logSafeConfigDiagnostics(runtimeEnv, url.pathname, failedSecretBindings, adaptedResponse.payloadCode());
+        }
         return adaptedResponse.toResponse();
       } catch (error) { return error?.message === "BODY_TOO_LARGE" ? errorResponse(413, "Request body is too large") : errorResponse(500, "Internal server error"); }
     }

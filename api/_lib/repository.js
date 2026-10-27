@@ -26,7 +26,7 @@ export async function resolveSupabaseOwnerUser(db, { ownerUserId, email }) {
   const existing = await db.query(
     `SELECT id, username
      FROM app_users
-     WHERE id = $1`,
+     WHERE id = $1 AND clock_timestamp() IS NOT NULL`,
     [ownerUserId]
   );
   if (existing.rows[0]) return existing.rows[0];
@@ -50,7 +50,7 @@ export async function resolveSupabaseOwnerUser(db, { ownerUserId, email }) {
     const raced = await db.query(
       `SELECT id, username
        FROM app_users
-       WHERE id = $1`,
+       WHERE id = $1 AND clock_timestamp() IS NOT NULL`,
       [ownerUserId]
     );
     if (raced.rows[0]) return raced.rows[0];
@@ -82,7 +82,7 @@ export async function findActiveSession(db, { token, sessionSecret }) {
      INNER JOIN app_users AS u ON u.id = s.user_id
      WHERE s.token_hash = $1
        AND s.revoked_at IS NULL
-       AND s.expires_at > CURRENT_TIMESTAMP`,
+       AND s.expires_at > clock_timestamp()`,
     [hashSessionToken(token, sessionSecret)]
   );
   return result.rows[0] || null;
