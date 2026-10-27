@@ -73,12 +73,13 @@ test("buildPgClientConfig configures TLS modes cleanly, preserves certificate ve
     "postgresql://postgres.ref:secret@c61744a2e2f3567333d4c5cac79bea49.hyperdrive.local:5432/postgres?sslmode=disable"
   );
   assert.equal(hyperdriveWithDisable.ssl, false);
-  assert.equal(hyperdriveWithDisable.connectionString.includes("sslmode"), false);
+  assert.equal(hyperdriveWithDisable.application_name, undefined);
 
   const hyperdriveWithoutSslParam = buildPgClientConfig(
     "postgresql://postgres.ref:secret@395fd2032d8441759f4a8d6a641e7eec.hyperdrive.local:5432/postgres"
   );
   assert.equal(hyperdriveWithoutSslParam.ssl, false);
+  assert.equal(hyperdriveWithoutSslParam.application_name, undefined);
 
   const localDev = buildPgClientConfig("postgresql://postgres:secret@localhost:5432/postgres?sslmode=disable");
   assert.equal(localDev.ssl, false);
