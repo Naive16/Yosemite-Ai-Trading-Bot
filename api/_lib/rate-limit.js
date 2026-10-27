@@ -57,9 +57,9 @@ export async function checkRateLimit(db, { key, windowSeconds, maxRequests }) {
   try {
     await cleanupExpiredBuckets(db);
     const result = await db.query(
-      `SELECT attempt_count, GREATEST(EXTRACT(EPOCH FROM (expires_at - CURRENT_TIMESTAMP)), 0)::integer AS retry_after_seconds
+      `SELECT attempt_count, GREATEST(EXTRACT(EPOCH FROM (expires_at - clock_timestamp())), 0)::integer AS retry_after_seconds
        FROM rate_limit_buckets
-       WHERE bucket_key = $1 AND expires_at > CURRENT_TIMESTAMP`,
+       WHERE bucket_key = $1 AND expires_at > clock_timestamp()`,
       [bucketKey(key)]
     );
     if (!result.rows[0]) return Object.freeze({ allowed: true, retryAfterSeconds: windowSeconds });

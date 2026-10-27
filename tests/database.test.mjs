@@ -38,14 +38,15 @@ test("database configuration accepts Supabase PostgreSQL URLs, supports DIRECT_U
   assert.throws(() => loadConfig({ APP_ENV: "production", ...TEST_SUPABASE_ENV, SESSION_SECRET: "a".repeat(32) }), ConfigurationError);
 });
 
-test("buildPgClientConfig configures TLS modes cleanly and strips pgbouncer query flags", () => {
+test("buildPgClientConfig configures TLS modes cleanly, preserves certificate verification, and disables inner-socket SSL only for Hyperdrive or local dev", () => {
   const pooled = buildPgClientConfig(
     "postgresql://postgres.ref:p%40ss@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require",
     { queryTimeoutMs: 4_500 }
   );
   assert.equal(pooled.connectionString.includes("pgbouncer"), false);
   assert.equal(pooled.connectionString.includes("sslmode"), false);
-  assert.deepEqual(pooled.ssl, { rejectUnauthorized: false });
+  assert.equal(pooled.ssl.rejectUnauthorized, true);
+  assert.match(pooled.ssl.ca, /BEGIN CERTIFICATE/);
   assert.equal(pooled.connectionTimeoutMillis, 4_500);
   assert.equal(pooled.query_timeout, 4_500);
 
@@ -54,14 +55,60 @@ test("buildPgClientConfig configures TLS modes cleanly and strips pgbouncer quer
   );
   assert.equal(strictVerifySupabase.ssl.rejectUnauthorized, true);
   assert.match(strictVerifySupabase.ssl.ca, /BEGIN CERTIFICATE/);
+  assert.equal(strictVerifySupabase.ssl.checkServerIdentity, undefined);
+
+  const verifyCaSupabase = buildPgClientConfig(
+    "postgresql://postgres:secret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=verify-ca"
+  );
+  assert.equal(verifyCaSupabase.ssl.rejectUnauthorized, true);
+  assert.match(verifyCaSupabase.ssl.ca, /BEGIN CERTIFICATE/);
+  assert.equal(typeof verifyCaSupabase.ssl.checkServerIdentity, "function");
 
   const strictVerifyGeneric = buildPgClientConfig(
     "postgresql://postgres:secret@postgres.example.test:5432/postgres?sslmode=verify-full"
   );
   assert.deepEqual(strictVerifyGeneric.ssl, { rejectUnauthorized: true });
 
+  const hyperdriveWithDisable = buildPgClientConfig(
+    "postgresql://postgres.ref:secret@c61744a2e2f3567333d4c5cac79bea49.hyperdrive.local:5432/postgres?sslmode=disable"
+  );
+  assert.equal(hyperdriveWithDisable.ssl, false);
+  assert.equal(hyperdriveWithDisable.connectionString.includes("sslmode"), false);
+
+  const hyperdriveWithoutSslParam = buildPgClientConfig(
+    "postgresql://postgres.ref:secret@395fd2032d8441759f4a8d6a641e7eec.hyperdrive.local:5432/postgres"
+  );
+  assert.equal(hyperdriveWithoutSslParam.ssl, false);
+
   const localDev = buildPgClientConfig("postgresql://postgres:secret@localhost:5432/postgres?sslmode=disable");
   assert.equal(localDev.ssl, false);
+});
+
+test("loadConfig gives HYPERDRIVE precedence over DATABASE_URL, allows internal .hyperdrive.local proxy in production, and blocks Hyperdrive for DIRECT_URL", () => {
+  const hyperdriveConn = "postgresql://postgres.ref:hd-secret@395fd2032d8441759f4a8d6a641e7eec.hyperdrive.local:5432/postgres?sslmode=disable";
+  const prodConfig = loadConfig({
+    APP_ENV: "production",
+    APP_ORIGIN: "https://yosemite-ai-trading-bot.francismkanda01.workers.dev",
+    ...TEST_SUPABASE_ENV,
+    SESSION_SECRET: "a".repeat(32),
+    DATABASE_URL: "postgresql://postgres.ref:stale-secret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require",
+    HYPERDRIVE: { connectionString: hyperdriveConn }
+  });
+  assert.equal(prodConfig.database.url, hyperdriveConn);
+  assert.equal(prodConfig.database.hyperdrive, true);
+  assert.equal(prodConfig.database.configured, true);
+
+  assert.throws(
+    () => loadConfig({
+      APP_ENV: "production",
+      APP_ORIGIN: "https://yosemite-ai-trading-bot.francismkanda01.workers.dev",
+      ...TEST_SUPABASE_ENV,
+      SESSION_SECRET: "a".repeat(32),
+      HYPERDRIVE: { connectionString: hyperdriveConn },
+      DIRECT_URL: hyperdriveConn
+    }),
+    (error) => error instanceof ConfigurationError && /DIRECT_URL/.test(error.message) && !error.message.includes("hd-secret")
+  );
 });
 
 test("initial migration is additive and contains required durable tables and indexes", async () => {

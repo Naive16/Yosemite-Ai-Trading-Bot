@@ -34,9 +34,10 @@ The Worker uses Workers Static Assets. The root `.assetsignore` excludes API sou
 
 Configure these in the Cloudflare Worker settings, not in GitHub files:
 
-- Public/runtime variables: `APP_ENV=production`, final HTTPS `APP_ORIGIN`, `TRADING_MODE=disabled`, `LIVE_TRADING_ENABLED=false`, `WORKER_ENABLED=false`, and `MT5_EXECUTION_ENABLED=false`.
-- Encrypted secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY` (publishable/anon key only — never a service-role or secret key), `SUPABASE_OWNER_USER_ID` (single workspace owner UUID), `SESSION_SECRET`, and `DATABASE_URL` (Supabase Supavisor Transaction Mode `:6543` with `?sslmode=require`).
-- Keep `DATABASE_URL` server-side. Use the Supabase Transaction Pooler URL (`:6543`) for Worker runtime traffic (the Worker opens short-lived per-request PostgreSQL clients so sockets are never shared across requests); keep `DIRECT_URL` (`:5432`) outside the Worker and use it only in a separately authorized migration workflow.
+- Public/runtime variables: `APP_ENV=production`, final HTTPS `APP_ORIGIN`, `TRADING_MODE=disabled`, `LIVE_TRADING_ENABLED=false`, `WORKER_ENABLED=false`, `MT5_EXECUTION_ENABLED=false`, `MT5_DEMO_MODE=false`, and `MT5_CONNECTOR=none`.
+- Cloudflare Hyperdrive binding: `HYPERDRIVE` (`id: 395fd2032d8441759f4a8d6a641e7eec` in `wrangler.jsonc`) connected to Supabase PostgreSQL over verified TLS with query caching disabled (`npm run hyperdrive:disable-cache` / `--caching-disabled`). When `HYPERDRIVE` is bound, `src/worker.js` and `api/_lib/config.js` give it precedence over `DATABASE_URL`.
+- Encrypted secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY` (publishable/anon key only — never a service-role or secret key), `SUPABASE_OWNER_USER_ID` (single workspace owner UUID), `SESSION_SECRET`, and optional fallback `DATABASE_URL`.
+- Keep database credentials server-side. Keep `DIRECT_URL` (`:5432`) outside the Worker and use it only in a separately authorized migration workflow.
 - Leave AI, market-data, news, and MT5 credentials unset until each integration is individually approved and verified. Unconfigured providers must remain unavailable.
 
 The application rejects production startup when required authentication, database, origin, or safety configuration is missing or unsafe. Never put plaintext passwords, password hashes, database URLs, or provider keys in `wrangler.jsonc`, source code, frontend assets, or documentation.

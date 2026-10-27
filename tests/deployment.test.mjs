@@ -32,6 +32,24 @@ test("deployment preflight passes safe Supabase production configuration without
   });
   assert.equal(directIpv6.ready, true);
   assert.equal(directIpv6.failures.length, 0);
+
+  const withHyperdrive = inspectDeploymentConfig({
+    APP_ENV: "production",
+    APP_ORIGIN: "https://dashboard.example.test",
+    ...TEST_SUPABASE_ENV,
+    SESSION_SECRET: "a-secure-session-secret-that-is-long-enough",
+    HYPERDRIVE: {
+      connectionString: "postgresql://postgres.exampleproject:hd-secret@395fd2032d8441759f4a8d6a641e7eec.hyperdrive.local:5432/postgres?sslmode=disable"
+    },
+    TRADING_MODE: "disabled",
+    LIVE_TRADING_ENABLED: "false",
+    WORKER_ENABLED: "false",
+    MT5_EXECUTION_ENABLED: "false"
+  });
+  assert.equal(withHyperdrive.ready, true);
+  assert.equal(withHyperdrive.failures.length, 0);
+  assert.match(withHyperdrive.warnings.join(" "), /caching-disabled/);
+  assert.equal(JSON.stringify(withHyperdrive).includes("hd-secret"), false);
 });
 
 test("deployment preflight rejects insecure origin and enabled worker", () => {

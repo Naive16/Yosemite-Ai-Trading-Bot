@@ -52,6 +52,29 @@ function readEnv(env, key) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function readHyperdriveUrl(env) {
+  const candidate = env?.HYPERDRIVE;
+  if (typeof candidate === "string") return candidate.trim();
+  if (candidate && typeof candidate === "object" && typeof candidate.connectionString === "string") {
+    return candidate.connectionString.trim();
+  }
+  return "";
+}
+
+export function isHyperdriveHostname(hostname) {
+  const normalized = String(hostname || "").trim().toLowerCase();
+  return /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.hyperdrive\.local$/.test(normalized);
+}
+
+export function isHyperdriveDatabaseUrl(value) {
+  if (!value || typeof value !== "string") return false;
+  try {
+    return isHyperdriveHostname(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+
 function parsePositiveInteger(value, key, minimum, maximum, fallback) {
   if (!value) return fallback;
   if (!/^\d+$/.test(value)) throw new ConfigurationError(`${key} must be an integer`);
@@ -72,7 +95,7 @@ function parseBoundedNumber(value, key, minimum, maximum, fallback) {
 
 const VALID_POSTGRES_SSL_MODES = new Set(["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]);
 
-function parseDatabaseUrl(value, key, appEnv = "development") {
+function parseDatabaseUrl(value, key, appEnv = "development", { allowHyperdrive = false } = {}) {
   if (!value) return "";
   let parsed;
   try {
@@ -86,11 +109,15 @@ function parseDatabaseUrl(value, key, appEnv = "development") {
   if (parsed.hostname.toLowerCase().endsWith(".neon.tech")) {
     throw new ConfigurationError(`${key} points to a legacy Neon host; configure your Supabase PostgreSQL URL`);
   }
+  const hyperdriveHost = isHyperdriveHostname(parsed.hostname);
+  if (hyperdriveHost && !allowHyperdrive) {
+    throw new ConfigurationError(`${key} must be a direct or session-mode PostgreSQL URL, not a Hyperdrive runtime proxy`);
+  }
   const sslMode = (parsed.searchParams.get("sslmode") || "").trim().toLowerCase();
   if (sslMode && !VALID_POSTGRES_SSL_MODES.has(sslMode)) {
     throw new ConfigurationError(`${key} has an unsupported sslmode parameter`);
   }
-  if (appEnv === "production" && (sslMode === "disable" || sslMode === "allow")) {
+  if (appEnv === "production" && !hyperdriveHost && (sslMode === "disable" || sslMode === "allow")) {
     throw new ConfigurationError(`${key} must require TLS in production`);
   }
   return value;
@@ -273,7 +300,11 @@ export function loadConfig(env = process.env) {
     throw new ConfigurationError("SESSION_SECRET must contain at least 32 bytes");
   }
 
-  const databaseUrl = parseDatabaseUrl(readEnv(env, "DATABASE_URL"), "DATABASE_URL", appEnv);
+  const hyperdriveUrl = parseDatabaseUrl(readHyperdriveUrl(env), "HYPERDRIVE", appEnv, { allowHyperdrive: true });
+  const configuredDatabaseUrl = hyperdriveUrl
+    ? ""
+    : parseDatabaseUrl(readEnv(env, "DATABASE_URL"), "DATABASE_URL", appEnv, { allowHyperdrive: true });
+  const databaseUrl = hyperdriveUrl || configuredDatabaseUrl;
   const explicitDirectUrl = parseDatabaseUrl(readEnv(env, "DIRECT_URL"), "DIRECT_URL", appEnv);
   const unpooledDatabaseUrl = parseDatabaseUrl(readEnv(env, "DATABASE_URL_UNPOOLED"), "DATABASE_URL_UNPOOLED", appEnv);
   if (explicitDirectUrl && unpooledDatabaseUrl && explicitDirectUrl !== unpooledDatabaseUrl) {
@@ -365,6 +396,7 @@ export function loadConfig(env = process.env) {
       url: databaseUrl,
       directUrl: databaseDirectUrl,
       configured: Boolean(databaseUrl),
+      hyperdrive: isHyperdriveDatabaseUrl(databaseUrl),
       queryTimeoutMs: parsePositiveInteger(readEnv(env, "DATABASE_QUERY_TIMEOUT_MS"), "DATABASE_QUERY_TIMEOUT_MS", 500, 30_000, DEFAULT_DATABASE_QUERY_TIMEOUT_MS)
     }),
     worker,
