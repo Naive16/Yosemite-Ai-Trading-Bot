@@ -3,27 +3,35 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { inspectDeploymentConfig } from "../api/_lib/deployment.js";
 
+import { TEST_SUPABASE_ENV } from "./support/fake-supabase.mjs";
+
 const vercel = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
 
 const validProductionEnv = {
   APP_ENV: "production",
   APP_ORIGIN: "https://dashboard.example.test",
-  AUTH_USERNAME: "operator",
-  AUTH_PASSWORD_HASH: "scrypt$16384$8$1$hash$checksum",
+  ...TEST_SUPABASE_ENV,
   SESSION_SECRET: "a-secure-session-secret-that-is-long-enough",
-  DATABASE_URL: "postgresql://app:secret@ep-example-pooler.us-east-2.aws.neon.tech/db?sslmode=require",
-  DATABASE_URL_UNPOOLED: "postgresql://app:secret@ep-example.us-east-2.aws.neon.tech/db?sslmode=require",
+  DATABASE_URL: "postgresql://postgres.exampleproject:secret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require",
+  DIRECT_URL: "postgresql://postgres.exampleproject:secret@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require",
   TRADING_MODE: "disabled",
   LIVE_TRADING_ENABLED: "false",
   WORKER_ENABLED: "false",
   MT5_EXECUTION_ENABLED: "false"
 };
 
-test("deployment preflight passes safe production configuration without returning secrets", () => {
+test("deployment preflight passes safe Supabase production configuration without returning secrets", () => {
   const result = inspectDeploymentConfig(validProductionEnv);
   assert.equal(result.ready, true);
   assert.equal(result.failures.length, 0);
   assert.equal(JSON.stringify(result).includes("secret"), false);
+
+  const directIpv6 = inspectDeploymentConfig({
+    ...validProductionEnv,
+    DIRECT_URL: "postgresql://postgres:secret@db.exampleproject.supabase.co:5432/postgres?sslmode=require"
+  });
+  assert.equal(directIpv6.ready, true);
+  assert.equal(directIpv6.failures.length, 0);
 });
 
 test("deployment preflight rejects insecure origin and enabled worker", () => {
@@ -33,18 +41,42 @@ test("deployment preflight rejects insecure origin and enabled worker", () => {
   assert.match(result.failures.join(" "), /WORKER_ENABLED/);
 });
 
-test("deployment preflight rejects pooled migration URL and trading enablement", () => {
-  const result = inspectDeploymentConfig({ ...validProductionEnv, DATABASE_URL_UNPOOLED: validProductionEnv.DATABASE_URL, TRADING_MODE: "simulation" });
+test("deployment preflight rejects transaction-pooled migration URL, legacy Neon hosts, disabled TLS, and trading enablement", () => {
+  const result = inspectDeploymentConfig({
+    ...validProductionEnv,
+    DIRECT_URL: validProductionEnv.DATABASE_URL,
+    TRADING_MODE: "simulation"
+  });
   assert.equal(result.ready, false);
-  assert.match(result.failures.join(" "), /direct, non-pooled/);
+  assert.match(result.failures.join(" "), /transaction pooler/);
   assert.match(result.failures.join(" "), /TRADING_MODE/);
+
+  const legacyNeon = inspectDeploymentConfig({
+    ...validProductionEnv,
+    DATABASE_URL: "postgresql://app:secret@ep-example-pooler.us-east-2.aws.neon.tech/db?sslmode=require"
+  });
+  assert.equal(legacyNeon.ready, false);
+  assert.match(legacyNeon.failures.join(" "), /legacy Neon host/);
+  assert.equal(JSON.stringify(legacyNeon).includes("secret"), false);
+
+  const disabledTls = inspectDeploymentConfig({
+    ...validProductionEnv,
+    DATABASE_URL: "postgresql://postgres.exampleproject:secret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=disable"
+  });
+  assert.equal(disabledTls.ready, false);
+  assert.match(disabledTls.failures.join(" "), /TLS/);
 });
 
-test("deployment preflight fails closed when production secrets are missing", () => {
+test("deployment preflight fails closed when production secrets are missing or service-role key is set", () => {
   const result = inspectDeploymentConfig({ APP_ENV: "production", APP_ORIGIN: "https://dashboard.example.test" });
   assert.equal(result.ready, false);
-  assert.match(result.failures.join(" "), /AUTH_USERNAME/);
+  assert.match(result.failures.join(" "), /SUPABASE_URL/);
   assert.equal(JSON.stringify(result).includes("DATABASE_URL"), false);
+
+  const withServiceRole = inspectDeploymentConfig({ ...validProductionEnv, SUPABASE_SERVICE_ROLE_KEY: "do-not-allow" });
+  assert.equal(withServiceRole.ready, false);
+  assert.match(withServiceRole.failures.join(" "), /service-role/);
+  assert.equal(JSON.stringify(withServiceRole).includes("do-not-allow"), false);
 });
 
 test("Vercel function pattern covers nested authentication and private routes", async () => {

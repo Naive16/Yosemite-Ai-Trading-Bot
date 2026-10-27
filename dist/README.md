@@ -1,1 +1,0 @@
-This folder contains the built output assets for the worker "yosemite-ai-trading-bot" generated at 2026-10-26T09:48:46.260Z.

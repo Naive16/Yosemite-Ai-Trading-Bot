@@ -543,7 +543,7 @@ loginForm.addEventListener("submit", async (event) => {
     const { response, data } = await readJson("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ username: form.get("username"), password: form.get("password") })
+      body: JSON.stringify({ email: String(form.get("email") || "").trim(), password: String(form.get("password") || "") })
     });
     if (!response.ok) {
       loginMessage.textContent = data.message || "Sign-in failed. Check your credentials and try again.";
@@ -583,6 +583,10 @@ async function checkSession() {
     if (response.ok) {
       csrfToken = data.csrfToken || "";
       showAuthenticatedApp();
+      return;
+    }
+    if (response.status === 403) {
+      showLogin(data.message || "Access restricted to the workspace owner.");
       return;
     }
     showLogin(response.status === 503 ? "Authentication or database service is not configured on this environment yet." : "");

@@ -16,17 +16,47 @@ export function hashCsrfToken(csrfToken, secret) {
   return base64Url(createHmac("sha256", secret).update(`csrf-value:${csrfToken}`).digest());
 }
 
-export async function ensureConfiguredUser(db, { id = randomUUID(), username, passwordHash }) {
-  const result = await db.query(
-    `INSERT INTO app_users (id, username, password_hash)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (username) DO UPDATE
-       SET password_hash = EXCLUDED.password_hash,
-           updated_at = CURRENT_TIMESTAMP
-     RETURNING id, username, password_hash`,
-    [id, username, passwordHash]
+const SUPABASE_PLACEHOLDER_PASSWORD_HASH = "supabase-auth-managed$external-password-disabled";
+
+export function supabaseFallbackUsername(ownerUserId) {
+  return `supabase:${String(ownerUserId).toLowerCase()}`;
+}
+
+export async function resolveSupabaseOwnerUser(db, { ownerUserId, email }) {
+  const existing = await db.query(
+    `SELECT id, username
+     FROM app_users
+     WHERE id = $1`,
+    [ownerUserId]
   );
-  return result.rows[0] || null;
+  if (existing.rows[0]) return existing.rows[0];
+
+  const normalizedEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+  const fallbackUsername = supabaseFallbackUsername(ownerUserId);
+  const candidates = normalizedEmail.length >= 3 && normalizedEmail.length <= 64
+    ? [normalizedEmail, fallbackUsername]
+    : [fallbackUsername];
+
+  for (const candidateUsername of candidates) {
+    const inserted = await db.query(
+      `INSERT INTO app_users (id, username, password_hash)
+       VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING
+       RETURNING id, username`,
+      [ownerUserId, candidateUsername, SUPABASE_PLACEHOLDER_PASSWORD_HASH]
+    );
+    if (inserted.rows[0]) return inserted.rows[0];
+
+    const raced = await db.query(
+      `SELECT id, username
+       FROM app_users
+       WHERE id = $1`,
+      [ownerUserId]
+    );
+    if (raced.rows[0]) return raced.rows[0];
+  }
+
+  return null;
 }
 
 export async function createSessionWithAudit(db, { userId, token, csrfToken, sessionSecret, expiresAt, metadata = {} }) {

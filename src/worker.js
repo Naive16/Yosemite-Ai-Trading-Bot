@@ -3,10 +3,11 @@ import { MAX_REQUEST_BODY_BYTES, routes } from "../api/_lib/worker/routes.js";
 
 const REQUIRED_PRODUCTION_KEYS = Object.freeze([
   "APP_ORIGIN",
-  "AUTH_PASSWORD_HASH",
-  "AUTH_USERNAME",
   "DATABASE_URL",
-  "SESSION_SECRET"
+  "SESSION_SECRET",
+  "SUPABASE_ANON_KEY",
+  "SUPABASE_OWNER_USER_ID",
+  "SUPABASE_URL"
 ]);
 
 function responseAdapter() {
@@ -51,6 +52,11 @@ async function resolveRuntimeEnv(env) {
         if (typeof secretValue === "string") resolved[key] = secretValue;
       } catch {
         failedSecretBindings.push(key);
+      }
+    } else if (key !== "ASSETS" && value && typeof value === "object" && typeof value.connectionString === "string") {
+      resolved[key] = value.connectionString;
+      if (key === "HYPERDRIVE" && !resolved.DATABASE_URL && typeof env.DATABASE_URL !== "string") {
+        resolved.DATABASE_URL = value.connectionString;
       }
     } else {
       resolved[key] = value;

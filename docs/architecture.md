@@ -2,7 +2,7 @@
 
 ## Scope
 
-This document describes the Milestone 1 foundation through Milestone 12 MT5 integration and reconciliation foundation. It does not claim live Neon, market-provider, Claude/news, account/broker verification, strategy profitability, broker execution, continuous paper operation, MT5 compatibility on this host, or deployment.
+This document describes the Milestone 1 foundation through the unified Supabase Auth + Supabase PostgreSQL backend migration. It does not claim live Supabase DDL execution, market-provider, Claude/news, account/broker verification, strategy profitability, broker execution, continuous paper operation, MT5 compatibility on this host, or deployment.
 
 ## Components
 
@@ -32,8 +32,8 @@ Browser
   │     └── authenticated, bounded historical-simulation boundary; unavailable without validated provider and instrument specifications
   ├── GET, POST /api/private/paper
   │     └── authenticated, CSRF-protected simulated-only boundary; no browser-supplied events or live execution
-  │     └── server-side auth, session, CSRF, validation, and safe response layer
-  │           └── Neon PostgreSQL via @neondatabase/serverless
+  │     └── server-side Supabase Auth owner verification, session, CSRF, validation, and safe response layer
+  │           └── Supabase PostgreSQL via pg (Supavisor Transaction Mode :6543 + RLS hardening)
   └── GET /api/health
         └── Vercel-compatible foundation health response including optional market-data configuration state
 
@@ -99,9 +99,9 @@ Future components (not connected in Milestones 1-12)
 ## Data-flow decisions
 
 - The browser contains no credentials and has no order-execution capability.
-- Runtime API traffic uses the server-only pooled `DATABASE_URL`; migrations use the direct `DATABASE_URL_UNPOOLED` URL.
-- Database queries use parameter placeholders through the Neon serverless driver. Migration SQL is trusted, versioned, additive, and never assembled from request input.
-- Passwords are never stored or compared in plaintext; the configured password is represented by a scrypt hash.
+- Runtime API traffic uses the server-only Supabase Supavisor Transaction Mode `DATABASE_URL` (`:6543`); DDL migrations use `DIRECT_URL` (or `DATABASE_URL_UNPOOLED`) pointing to Supabase Session Mode (`:5432`) or Direct (`:5432`).
+- Database queries use parameter placeholders (`$1..$n`) through the `pg` PostgreSQL wire-protocol driver. Migration SQL (`001`–`008`) is trusted, versioned, additive, enables Row Level Security across all 21 `public` tables, and is never assembled from request input.
+- Owner authentication uses server-side Supabase Email + Password (`POST /auth/v1/token?grant_type=password` + `GET /auth/v1/user`) with constant-time `SUPABASE_OWNER_USER_ID` enforcement on login and every protected route. Passwords and keys are never stored in browser code or plaintext logs.
 - Sessions use opaque random tokens in an HttpOnly, SameSite=Lax cookie. Only HMAC-derived session and CSRF hashes are stored in PostgreSQL. State-changing auth requests require same-origin checks and the session-bound CSRF token.
 - Session validation and revocation query PostgreSQL, so a session remains valid or revoked across simulated serverless instances.
 - Login failures are generic and rate-limited by a hashed client identifier plus username in the current process only.
@@ -121,7 +121,7 @@ Future components (not connected in Milestones 1-12)
 - Anthropic/OpenRouter credentials remain server-only. Provider responses share the existing bounded advisory schema and fail closed on refusal, empty, truncated, malformed, or invalid output. Provider usage may incur charges; no paid service was activated and live provider connectivity remains unverified.
 - Risk evaluation does not accept account balances, P&L, positions, conversion rates, or instrument specifications from the browser. The current endpoint returns BLOCKED and records an audit event because no trusted account/broker source is configured. Simulated fixtures are test-only and cannot produce a live PASS.
 - Position sizing requires explicit base/quote conversion rates, contract size, pip value, pip size, volume bounds/step, and cost assumptions. Missing broker-specific specifications block sizing rather than inferring them from a symbol name.
-- Risk state is designed for additive persistence in `002_risk_engine.sql`, including configuration versions, daily equity state, account/position snapshots, and risk evaluations. Live Neon migration and concurrent multi-instance account-state validation remain outstanding.
+- Risk state is designed for additive persistence in `002_risk_engine.sql`, including configuration versions, daily equity state, account/position snapshots, and risk evaluations. Concurrent multi-instance live broker account-state validation remains deferred while broker execution stays disabled.
 - Proposal state is designed for additive persistence in `003_trade_proposals.sql`. Proposal payloads are stored with a canonical digest and version; decisions use conditional updates requiring pending status, matching digest/version, and unexpired state. No approval can be created from client-supplied financial values.
 - Backtests consume only server-side validated historical candles. The engine replays candles chronologically, excludes future candles from each decision, fills at the next candle open by default, applies configured spread/commission/swap/slippage assumptions, handles gaps at the open, and resolves same-candle stop/target ambiguity conservatively as stop-first. It closes any remaining simulated position at the final historical close and labels results as historical simulation.
 - Backtest inputs are bounded and reproducible. Unsupported instrument specifications, missing historical data, invalid OHLC, non-chronological candles, duplicate timestamps, and excessive gaps fail safely rather than being inferred or repaired into fabricated data.
@@ -130,7 +130,7 @@ Future components (not connected in Milestones 1-12)
 - MT5 account classification must come from provider-reported trade mode and exact server-side account/server allowlists. Server names, usernames, environment labels, and dashboard state cannot prove demo status. Unknown or live classifications block the adapter.
 - The MT5 adapter is transport-independent and order submission is hard-blocked. A successful provider request must never be treated as execution; broker order/deal/position state must be reconciled, especially after timeouts or ambiguous responses.
 - Execution intents use additive migration `005_execution_reconciliation.sql` with idempotency uniqueness and explicit unknown/reconciliation-required states. The current pure ledger is testable groundwork, not a durable repository or live execution path.
-- The deployment investigation recommends retaining the current request-driven frontend/API and Neon database, with any future worker isolated as a separate process using the same server-side secrets and mandatory approval/risk gates. The worker must claim jobs transactionally, use idempotency keys, reconcile unknown outcomes after restart, back off on provider/database failure, and shut down without claiming uncommitted work completed.
+- The deployment investigation recommends retaining the current request-driven frontend/API and Supabase PostgreSQL database, with any future worker isolated as a separate process using the same server-side secrets and mandatory approval/risk gates. The worker must claim jobs transactionally, use idempotency keys, reconcile unknown outcomes after restart, back off on provider/database failure, and shut down without claiming uncommitted work completed.
 - The current environment has no trusted candidate/account/instrument source for proposal creation, so the UI remains empty and approval cannot be manufactured. Future execution components must consume the exact approved proposal ID/version/digest and revalidate risk and expiry before any execution attempt.
 - Login, market-data, AI, risk, strategy, backtest, and paper request limiters use the shared atomic `rate_limit_buckets` table from migration `007_rate_limit_buckets.sql`, with fail-closed behavior for sensitive routes. The migration must be applied and verified on the target database before public deployment.
 - The initial safety state is paused, with live trading explicitly disabled.
@@ -144,9 +144,10 @@ Milestone 13 adds provider-independent operational health, bounded/redacted stru
 - `src/`: browser application code and styles.
 - `api/`: Vercel-compatible serverless functions.
 - `api/_lib/`: configuration, database, repository, HTTP security, authentication, validation, market-data provider adapters, normalization, cache, rate-limit, indicator, strategy, Claude, news, AI, backtest, and paper-simulation helpers.
-- `db/migrations/`: additive versioned SQL migrations; use a direct non-pooled connection for execution. `002_risk_engine.sql` adds risk state, `003_trade_proposals.sql` adds immutable proposal and decision records, and `004_paper_backtest.sql` adds simulation-run/event/position/trade storage.
-- `scripts/migrate.mjs`: migration runner that refuses a pooled Neon URL.
-- `tests/`: focused local tests using a deterministic fake database, provider fixtures, and strategy fixtures; no Neon or market-data credentials are required.
+- `db/migrations/`: additive versioned SQL migrations; use `DIRECT_URL` (`:5432`) for execution. `002_risk_engine.sql` adds risk state, `003_trade_proposals.sql` adds immutable proposal and decision records, `004_paper_backtest.sql` adds simulation-run/event/position/trade storage, `007_rate_limit_buckets.sql` adds shared atomic rate limiting, and `008_supabase_rls_hardening.sql` enables Row Level Security and locks down PostgREST access across all 21 `public` tables.
+- `scripts/migrate.mjs`: PostgreSQL migration runner that rejects transaction-pooled (`:6543`) and legacy Neon URLs.
+- `scripts/migrate-neon-to-supabase.mjs`: read-only-source (`BEGIN READ ONLY`), dry-run-by-default, idempotent data migration runner for preserving durable Neon records in Supabase.
+- `tests/`: focused local tests using deterministic mocks plus disposable real PostgreSQL (`PGlite`), provider fixtures, and strategy fixtures; no live Supabase or market-data credentials are required.
 - `docs/`: architecture and milestone documentation.
 - `.env.example`: placeholder configuration names only.
 

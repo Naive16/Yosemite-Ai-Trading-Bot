@@ -4,9 +4,9 @@ Yosemite AI is an AI-assisted forex trading workspace designed around explicit u
 
 ## Current status
 
-Local deployment preparation now includes a native Cloudflare Workers entry point alongside the existing Node server and Neon-backed persistence. No remote deployment, Git push, Cloudflare resource change, or browser production verification has been performed.
+Local deployment preparation now includes a native Cloudflare Workers entry point alongside the existing Node server and unified Supabase Auth + Supabase PostgreSQL persistence (`pg` wire-protocol driver + Supavisor pooling + Row Level Security hardening). No remote deployment, Git push, Cloudflare resource change, remote Neon mutation, or remote Supabase DDL execution has been performed.
 
-The current build contains the Milestone 1 dashboard and health-check scaffold, Milestone 2 authentication, Milestone 3 Neon persistence, the responsive Milestone 4 trading-terminal workspace, the Milestone 5 provider-independent market-data layer, the Milestone 6 deterministic baseline strategy engine, the Milestone 7 server-only Claude analysis adapter, the Milestone 8 independent risk engine, the Milestone 9 immutable proposal/explicit approval workflow, the Milestone 10 deterministic backtest engine plus paper-simulation boundary, and the Milestone 12 MT5 adapter/reconciliation foundation. Twelve Data, Claude, the optional news feed, trusted account/exposure feeds, instrument specifications, MT5 terminal access, and broker execution are unavailable by default. Live trading, demo execution, and continuous paper operation are disabled.
+The current build contains the Milestone 1 dashboard and health-check scaffold, Milestone 2 authentication, Milestone 3 PostgreSQL persistence (migrated locally from Neon to Supabase PostgreSQL), the responsive Milestone 4 trading-terminal workspace, the Milestone 5 provider-independent market-data layer, the Milestone 6 deterministic baseline strategy engine, the Milestone 7 server-only Claude analysis adapter, the Milestone 8 independent risk engine, the Milestone 9 immutable proposal/explicit approval workflow, the Milestone 10 deterministic backtest engine plus paper-simulation boundary, and the Milestone 12 MT5 adapter/reconciliation foundation. Twelve Data, Claude, the optional news feed, trusted account/exposure feeds, instrument specifications, MT5 terminal access, and broker execution are unavailable by default. Live trading, demo execution, and continuous paper operation are disabled.
 
 ## Run locally
 
@@ -24,25 +24,17 @@ npm start
 
 The server binds to `0.0.0.0` and uses `PORT` when supplied, otherwise `3000`. Open `http://localhost:3000/`. The manual Cloudflare Workers runbook is [docs/runbooks/cloudflare-deployment.md](docs/runbooks/cloudflare-deployment.md); the existing Node/Render runbook remains available for the non-Worker server.
 
-Do not add secrets to this repository. Copy `.env.example` to a local environment and provide an `AUTH_USERNAME`, an scrypt `AUTH_PASSWORD_HASH`, a randomly generated `SESSION_SECRET` of at least 32 bytes, and a server-only Neon `DATABASE_URL` before using the login flow.
+Do not add secrets to this repository. Copy `.env.example` to an ignored local `.env` file and provide `SUPABASE_URL`, `SUPABASE_ANON_KEY` (publishable/anon key only — never a service-role or secret key), `SUPABASE_OWNER_USER_ID` (the workspace owner's Supabase Auth UUID), a randomly generated `SESSION_SECRET` of at least 32 bytes, and a server-only Supabase PostgreSQL `DATABASE_URL` before using the Email + Password login flow. See [`docs/supabase-authentication.md`](docs/supabase-authentication.md) and [`docs/supabase-migration-plan.md`](docs/supabase-migration-plan.md) for the single-owner setup and Neon-to-Supabase migration runbook.
 
-Use the pooled Neon URL for application requests. Set `DATABASE_URL_UNPOOLED` to the direct, non-pooled URL for migrations. Neither value is sent to browser code.
+Use the Supabase Supavisor Transaction Mode URL (`:6543`) as `DATABASE_URL` for runtime requests, and set `DIRECT_URL` (or `DATABASE_URL_UNPOOLED`) to the Supabase Session Mode (`:5432`, IPv4-compatible) or Direct (`:5432`, IPv6) URL for migrations. Neither value nor any Supabase credential is sent to browser code.
 
-Generate a password hash locally with:
-
-```text
-npm run hash-password
-```
-
-Enter and confirm a 12-256 character password in a local terminal; input stays hidden. Password arguments and piped input are rejected. Prompts and errors go to stderr; stdout contains only the resulting hash. The project npm configuration suppresses npm's script banner. The script reuses the login system's scrypt implementation with a fresh 16-byte random salt, a 64-byte key, and `N=16384`, `r=8`, `p=1`. Its format is `scrypt$N$r$p$salt$digest`, with base64url salt and digest fields. Keep the result in ignored local environment configuration; never save passwords or generated hashes in source, tests, documentation, or tracked files.
-
-Run the additive migration script only after reviewing it and configuring a direct database URL:
+Run the additive migration script only after reviewing it and configuring `DIRECT_URL`:
 
 ```text
 npm run migrate
 ```
 
-The configured Neon production branch has additive migrations `000001` through `000006` applied and read-only schema verification completed. Future migration changes still require review and explicit authorization.
+Additive migrations `001` through `008` (including `007_rate_limit_buckets.sql` and `008_supabase_rls_hardening.sql`) are verified locally against real PostgreSQL; applying them remotely to the target Supabase database and optionally copying durable records from the untouched Neon branch via `scripts/migrate-neon-to-supabase.mjs` requires explicit approval.
 
 Before a production deployment, run the fail-closed preflight with the deployment environment variables loaded:
 
@@ -60,7 +52,7 @@ Candidate analysis is provided by the protected `GET /api/private/strategy` endp
 
 AI interpretation is provided by the protected `GET /api/private/analysis` endpoint. Set `AI_PROVIDER=anthropic` or `AI_PROVIDER=openrouter`; the latter uses `OPENROUTER_BASE_URL` and `OPENROUTER_MODEL` with the server-only `OPENROUTER_API_KEY`. The server assembles the market snapshot and deterministic candidate; browser clients cannot supply prices, candles, indicators, news, or risk values. Either provider's output is accepted only when it matches the bounded schema and references supplied news IDs. Missing credentials, refusal, empty/truncated/malformed output, missing news, stale evidence, and provider failures remain explicit unavailable or abstention states. AI is not a trading authority and cannot approve or execute anything. Provider usage may incur charges; no live provider request is claimed by local verification.
 
-Independent risk validation is provided by the protected `GET /api/private/risk` endpoint and the server-side `independent-risk-engine` module. Its baseline limits are 0.25% equity risk per trade, 1% daily loss halt, two open positions, 1.5:1 minimum reward:risk, three-loss cooling, quote-age and price-drift limits, and required instrument specifications. Position sizing requires explicit contract, pip, volume, and currency-conversion data; missing or simulated account state returns `BLOCKED`. `PASS` is validation only, never approval or execution authorization. Risk state uses additive migration `002_risk_engine.sql`; live Neon/account validation remains outstanding.
+Independent risk validation is provided by the protected `GET /api/private/risk` endpoint and the server-side `independent-risk-engine` module. Its baseline limits are 0.25% equity risk per trade, 1% daily loss halt, two open positions, 1.5:1 minimum reward:risk, three-loss cooling, quote-age and price-drift limits, and required instrument specifications. Position sizing requires explicit contract, pip, volume, and currency-conversion data; missing or simulated account state returns `BLOCKED`. `PASS` is validation only, never approval or execution authorization. Risk state uses additive migration `002_risk_engine.sql`; live Supabase/account validation remains outstanding.
 
 Trade proposals and explicit decisions use the protected `/api/private/proposals` endpoint and additive migration `003_trade_proposals.sql`. Proposal payloads are immutable and SHA-256 digest-bound. Approval requires the exact proposal version and digest, a fresh eligible `PASS` risk result, unexpired trusted inputs, authenticated user action, same-origin validation, and the session CSRF token. Rejected, blocked, expired, invalidated, superseded, or changed proposals cannot be approved. Approval records consent only; it never triggers execution. The current environment has no trusted inputs, so no eligible proposal is manufactured.
 
@@ -70,7 +62,7 @@ Paper simulation is exposed through the protected `/api/private/paper` surface a
 
 Milestone 11 adds only a disabled-by-default worker configuration contract and an in-process lifecycle test helper. `WORKER_ENABLED=true` requires a server-side database URL, but the helper does not persist heartbeats, poll jobs, or execute trades. A real worker host remains an investigation outcome, not a deployment claim. MT5 remains unverified for unattended cloud operation.
 
-The login, market-data, AI, risk, strategy, backtest, and paper request limiters use the additive `007_rate_limit_buckets.sql` shared Neon table with atomic upserts and fail-closed database errors. Migration 007 must be reviewed and applied to the target database before public deployment. The market-data cache remains process-local and is only a freshness optimization, not durable state.
+The login, market-data, AI, risk, strategy, backtest, and paper request limiters use the additive `007_rate_limit_buckets.sql` shared PostgreSQL table with atomic upserts and fail-closed database errors, while `008_supabase_rls_hardening.sql` enables Row Level Security across all 21 `public` tables and locks down PostgREST access. Migrations `001` through `008` must be reviewed and applied to the target Supabase database before public deployment. The market-data cache remains process-local and is only a freshness optimization, not durable state.
 
 Claude analysis is server-only and uses `ANTHROPIC_API_KEY`, bounded retries/timeouts, Anthropic structured-output metadata, and independent runtime validation. It is unavailable when the key is unset and never authorizes execution. The optional MT5 connector is provider-independent; the local MirroAPI transport is configured with `MT5_CONNECTOR=mirro`, `MIRRO_API_KEY`, and `MIRRO_ACCOUNT_ID`, but account verification and execution remain disabled until an authorized demo account and server allowlists are configured. MirroAPI usage may incur account-hosting charges; no account or key was created.
 
@@ -88,6 +80,6 @@ See [`docs/architecture.md`](docs/architecture.md) for the current component bou
 
 ## Safety boundary
 
-Milestone 13 adds an authenticated `/api/private/operations` diagnostic and additive operations persistence foundations. The configured Neon branch has migrations `001` through `006` applied and verified. Public health remains minimal; structured logs are bounded and redacted; execution remains blocked. Production defaults to `TRUSTED_PROXY_MODE=none`, so forwarded client headers are not trusted unless explicitly enabled for the deployment platform.
+Milestone 13 adds an authenticated `/api/private/operations` diagnostic and additive operations persistence foundations. Migrations `001` through `008` are verified locally against disposable PostgreSQL; remote application on Supabase awaits explicit approval, while the legacy Neon branch remains untouched. Public health remains minimal; structured logs are bounded and redacted; execution remains blocked. Production defaults to `TRUSTED_PROXY_MODE=none`, so forwarded client headers are not trusted unless explicitly enabled for the deployment platform.
 
 The dashboard is intentionally read-only. It displays no fabricated market prices, balances, trades, performance, or strategy inputs, submits no orders, and does not claim production readiness or profitability. Candidate status is always informational and separate from approval. See [`docs/runbooks/deployment.md`](docs/runbooks/deployment.md) for the deployment boundary and handoff procedure.

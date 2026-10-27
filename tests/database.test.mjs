@@ -1,15 +1,67 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createDatabaseClient, DatabaseQueryError } from "../api/_lib/database.js";
+import { buildPgClientConfig, createDatabaseClient, DatabaseQueryError } from "../api/_lib/database.js";
 import { loadConfig, ConfigurationError } from "../api/_lib/config.js";
 
-test("database configuration accepts PostgreSQL URLs and rejects invalid values", () => {
-  const config = loadConfig({ APP_ENV: "test", DATABASE_URL: "postgresql://user:secret@example.test/db" });
+import { TEST_SUPABASE_ENV } from "./support/fake-supabase.mjs";
+
+test("database configuration accepts Supabase PostgreSQL URLs, supports DIRECT_URL, and rejects invalid or unencrypted production URLs", () => {
+  const config = loadConfig({
+    APP_ENV: "test",
+    DATABASE_URL: "postgresql://postgres.ref:secret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require",
+    DIRECT_URL: "postgresql://postgres.ref:secret@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require"
+  });
   assert.equal(config.database.configured, true);
-  assert.equal(config.database.url, "postgresql://user:secret@example.test/db");
+  assert.match(config.database.url, /:6543\/postgres/);
+  assert.match(config.database.directUrl, /:5432\/postgres/);
   assert.throws(() => loadConfig({ APP_ENV: "test", DATABASE_URL: "https://example.test/db" }), ConfigurationError);
-  assert.throws(() => loadConfig({ APP_ENV: "production", AUTH_USERNAME: "operator", AUTH_PASSWORD_HASH: "scrypt$1024$1$1$abcdefghijklmnop$abcdefghijklmnopabcdefghijklmnopabcdefghijklmnopabcdefghijklmnopabcdefghijklmnopabcdefghijklmnopabcdefghijklmnop", SESSION_SECRET: "a".repeat(32) }), ConfigurationError);
+  assert.throws(() => loadConfig({ APP_ENV: "test", DATABASE_URL: "postgresql://user:secret@example.test/" }), ConfigurationError);
+  assert.throws(
+    () => loadConfig({
+      APP_ENV: "test",
+      DIRECT_URL: "postgresql://postgres.ref:secret@aws-0-eu-west-1.pooler.supabase.com:5432/postgres",
+      DATABASE_URL_UNPOOLED: "postgresql://postgres:secret@db.ref.supabase.co:5432/postgres"
+    }),
+    ConfigurationError
+  );
+  assert.throws(
+    () => loadConfig({
+      APP_ENV: "production",
+      APP_ORIGIN: "https://dashboard.example.test",
+      ...TEST_SUPABASE_ENV,
+      SESSION_SECRET: "a".repeat(32),
+      DATABASE_URL: "postgresql://postgres.ref:secret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=disable"
+    }),
+    ConfigurationError
+  );
+  assert.throws(() => loadConfig({ APP_ENV: "production", ...TEST_SUPABASE_ENV, SESSION_SECRET: "a".repeat(32) }), ConfigurationError);
+});
+
+test("buildPgClientConfig configures TLS modes cleanly and strips pgbouncer query flags", () => {
+  const pooled = buildPgClientConfig(
+    "postgresql://postgres.ref:p%40ss@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require",
+    { queryTimeoutMs: 4_500 }
+  );
+  assert.equal(pooled.connectionString.includes("pgbouncer"), false);
+  assert.equal(pooled.connectionString.includes("sslmode"), false);
+  assert.deepEqual(pooled.ssl, { rejectUnauthorized: false });
+  assert.equal(pooled.connectionTimeoutMillis, 4_500);
+  assert.equal(pooled.query_timeout, 4_500);
+
+  const strictVerifySupabase = buildPgClientConfig(
+    "postgresql://postgres:secret@db.ref.supabase.co:5432/postgres?sslmode=verify-full"
+  );
+  assert.equal(strictVerifySupabase.ssl.rejectUnauthorized, true);
+  assert.match(strictVerifySupabase.ssl.ca, /BEGIN CERTIFICATE/);
+
+  const strictVerifyGeneric = buildPgClientConfig(
+    "postgresql://postgres:secret@postgres.example.test:5432/postgres?sslmode=verify-full"
+  );
+  assert.deepEqual(strictVerifyGeneric.ssl, { rejectUnauthorized: true });
+
+  const localDev = buildPgClientConfig("postgresql://postgres:secret@localhost:5432/postgres?sslmode=disable");
+  assert.equal(localDev.ssl, false);
 });
 
 test("initial migration is additive and contains required durable tables and indexes", async () => {
@@ -88,4 +140,86 @@ test("rate-limit migration is additive, bounded, and indexed for expiry cleanup"
   assert.match(migration, /CREATE INDEX IF NOT EXISTS rate_limit_buckets_expiry_idx/);
   assert.match(migration, /timestamptz NOT NULL/);
   assert.doesNotMatch(migration, /^\s*(DROP|TRUNCATE|DELETE)\b/im);
+});
+
+test("Supabase RLS hardening migration is additive and enables RLS across all 21 application tables", async () => {
+  const migration = await readFile(new URL("../db/migrations/008_supabase_rls_hardening.sql", import.meta.url), "utf8");
+  const allTables = [
+    "schema_migrations",
+    "app_users",
+    "auth_sessions",
+    "audit_events",
+    "risk_configurations",
+    "risk_daily_state",
+    "risk_account_snapshots",
+    "risk_position_snapshots",
+    "risk_evaluations",
+    "trade_proposals",
+    "trade_proposal_decisions",
+    "backtest_runs",
+    "paper_events",
+    "paper_positions",
+    "paper_trades",
+    "execution_intents",
+    "execution_transitions",
+    "operational_alerts",
+    "worker_leases",
+    "recovery_tasks",
+    "rate_limit_buckets"
+  ];
+  for (const relation of allTables) {
+    assert.match(migration, new RegExp(`ALTER TABLE ${relation} ENABLE ROW LEVEL SECURITY;`));
+  }
+  assert.doesNotMatch(migration, /^\s*(DROP|TRUNCATE|DELETE)\b/im);
+});
+
+test("database adapter commits and rolls back explicit SQL transactions cleanly", async () => {
+  const statements = [];
+  const database = createDatabaseClient({ database: { url: "postgresql://user:secret@example.test/db", queryTimeoutMs: 1_000 } }, () => ({
+    async query(text, values) {
+      statements.push({ text, values });
+      return { rows: [{ ok: 1 }] };
+    }
+  }));
+
+  const committed = await database.transaction(async (tx) => {
+    await tx.query("INSERT INTO audit_events (id, event_type) VALUES ($1, $2)", ["evt_12345678901234567890", "test.event"]);
+    return "committed";
+  });
+  assert.equal(committed, "committed");
+  assert.deepEqual(statements.map((item) => item.text), [
+    "BEGIN",
+    "INSERT INTO audit_events (id, event_type) VALUES ($1, $2)",
+    "COMMIT"
+  ]);
+
+  statements.length = 0;
+  assert.throws(
+    () => loadConfig({ APP_ENV: "test", DATABASE_URL: "postgresql://user:secret@ep-legacy-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require" }),
+    (error) => error instanceof ConfigurationError && /legacy Neon host/.test(error.message) && !error.message.includes("secret")
+  );
+  assert.throws(
+    () => loadConfig({ APP_ENV: "test", DIRECT_URL: "postgresql://user:secret@ep-legacy.us-east-2.aws.neon.tech/neondb?sslmode=require" }),
+    (error) => error instanceof ConfigurationError && /legacy Neon host/.test(error.message) && !error.message.includes("secret")
+  );
+  const pinnedSupabaseVerifyFull = buildPgClientConfig(
+    "postgresql://postgres.testref:secret@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=verify-full"
+  );
+  assert.equal(pinnedSupabaseVerifyFull.ssl.rejectUnauthorized, true);
+  assert.match(pinnedSupabaseVerifyFull.ssl.ca, /BEGIN CERTIFICATE/);
+  assert.doesNotMatch(pinnedSupabaseVerifyFull.connectionString, /sslmode=/);
+
+  await assert.rejects(
+    () =>
+      database.transaction(async (tx) => {
+        await tx.query("UPDATE trade_proposals SET status = $1", ["approved"]);
+        throw new Error("domain_abort");
+      }),
+    /domain_abort/
+  );
+  assert.deepEqual(statements.map((item) => item.text), [
+    "BEGIN",
+    "UPDATE trade_proposals SET status = $1",
+    "ROLLBACK"
+  ]);
 });

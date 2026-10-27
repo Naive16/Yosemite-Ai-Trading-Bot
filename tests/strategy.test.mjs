@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { simpleMovingAverage, relativeStrengthIndex, averageTrueRange } from "../api/_lib/strategy/indicators.js";
 import { evaluateBaselineStrategy, STRATEGY_NAME, StrategyInputError } from "../api/_lib/strategy/engine.js";
 import strategyHandler from "../api/private/strategy.js";
-import { hashPassword, clearAuthState } from "../api/_lib/auth.js";
+import { clearAuthState } from "../api/_lib/auth.js";
+import { setSupabaseFetchForTests } from "../api/_lib/supabase.js";
 import { setDatabaseForTests, clearDatabaseTestOverride } from "../api/_lib/database.js";
 import { clearMarketDataRateLimit } from "../api/_lib/market-data/rate-limit.js";
 import { FakeDatabase } from "./support/fake-database.mjs";
+import { TEST_OWNER_EMAIL, TEST_OWNER_PASSWORD, TEST_SUPABASE_ENV, createFakeSupabaseFetch } from "./support/fake-supabase.mjs";
 import loginHandler from "../api/auth/login.js";
 
 const now = new Date("2026-10-21T12:00:00.000Z");
@@ -103,13 +105,11 @@ function responseDouble() {
   return { statusCode: null, headers: {}, body: null, status(code) { this.statusCode = code; return this; }, setHeader(name, value) { this.headers[name] = value; }, json(body) { this.body = body; return this; } };
 }
 
-const password = "correct horse battery staple";
-const passwordHash = await hashPassword(password, { N: 1_024, r: 1, p: 1 });
 const originalEnv = { ...process.env };
 const database = new FakeDatabase();
 
 function configureAuth() {
-  Object.assign(process.env, { APP_ENV: "test", APP_ORIGIN: "http://localhost:3000", TRADING_MODE: "disabled", LIVE_TRADING_ENABLED: "false", AUTH_USERNAME: "operator", AUTH_PASSWORD_HASH: passwordHash, SESSION_SECRET: "c".repeat(32), DATABASE_URL: "postgresql://test:test@example.test/test", MARKET_DATA_PROVIDER: "none" });
+  Object.assign(process.env, { APP_ENV: "test", APP_ORIGIN: "http://localhost:3000", TRADING_MODE: "disabled", LIVE_TRADING_ENABLED: "false", ...TEST_SUPABASE_ENV, SESSION_SECRET: "c".repeat(32), DATABASE_URL: "postgresql://test:test@example.test/test", MARKET_DATA_PROVIDER: "none" });
 }
 
 function request({ cookie = "", url = "/api/private/strategy?symbol=EUR%2FUSD&timeframe=M15" } = {}) {
@@ -124,8 +124,9 @@ before(async () => {
   clearAuthState();
   clearMarketDataRateLimit();
   setDatabaseForTests(database);
+  setSupabaseFetchForTests(createFakeSupabaseFetch());
   const login = responseDouble();
-  await loginHandler({ method: "POST", headers: { origin: "http://localhost:3000", "x-real-ip": "strategy-login", "content-type": "application/json" }, body: { username: "operator", password } }, login);
+  await loginHandler({ method: "POST", headers: { origin: "http://localhost:3000", "x-real-ip": "strategy-login", "content-type": "application/json" }, body: { email: TEST_OWNER_EMAIL, password: TEST_OWNER_PASSWORD } }, login);
   database.testCookie = login.headers["Set-Cookie"].split(";", 1)[0];
 });
 

@@ -20,11 +20,11 @@
         </div>
         <h1 id="login-title">Enter your workspace</h1>
         <form id="login-form" novalidate>
-          <label for="username">Username or email</label>
-          <input id="username" name="username" autocomplete="username" minlength="3" maxlength="64" required />
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="email" minlength="5" maxlength="254" required />
           <label for="password">Password</label>
           <div class="password-field">
-            <input id="password" name="password" type="password" autocomplete="current-password" minlength="12" maxlength="256" required />
+            <input id="password" name="password" type="password" autocomplete="current-password" minlength="6" maxlength="256" required />
             <button class="password-toggle" id="login-password-toggle" type="button" aria-label="Show password" aria-controls="password" aria-pressed="false" title="Show password">
               <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.5"/></svg>
             </button>
@@ -32,7 +32,7 @@
           <button class="button button--primary login-submit" id="login-submit" type="submit">Sign in</button>
           <p class="form-message" id="login-message" role="alert" aria-live="polite"></p>
         </form>
-        <p class="login-footnote">Trading remains paused. Live execution is not available.</p>
+        <p class="login-footnote">Single-owner workspace · Trading remains paused. Live execution is not available.</p>
       </div>
     </section>
 
@@ -166,7 +166,7 @@
           </section>
 
           <section class="view-panel" data-view-panel="health" aria-labelledby="health-heading" hidden>
-            <div class="page-intro"><div><p class="eyebrow">Operations</p><h2 id="health-heading">System health</h2><p class="intro-copy">Service status is read from the existing health and protected-status endpoints where available.</p></div><button class="button button--quiet" id="refresh-health" type="button">Refresh status</button></div><div class="health-grid" id="health-grid"><article class="health-card"><div class="health-card-top"><span class="health-icon">◉</span><span class="status-chip status-chip--amber">Checking</span></div><h3>API foundation</h3><p>Read-only health endpoint</p></article><article class="health-card"><div class="health-card-top"><span class="health-icon">▦</span><span class="status-chip status-chip--muted">Unknown</span></div><h3>Database</h3><p>Neon persistence layer</p></article><article class="health-card"><div class="health-card-top"><span class="health-icon">⌁</span><span class="status-chip status-chip--muted">Not configured</span></div><h3>Market data</h3><p>Validated quote and candle feed</p></article><article class="health-card"><div class="health-card-top"><span class="health-icon">✦</span><span class="status-chip status-chip--muted">Not configured</span></div><h3>AI analysis</h3><p>Structured interpretation adapter</p></article></div><article class="panel health-detail-panel"><div class="panel-heading"><div><p class="eyebrow">Readiness notes</p><h3>Safe operating boundary</h3></div><span class="read-only-badge">TRADING DISABLED</span></div><div class="detail-list"><div><span>Execution mode</span><strong>Disabled</strong></div><div><span>Market data freshness</span><strong>Unavailable</strong></div><div><span>Worker heartbeat</span><strong>Not configured</strong></div><div><span>Last status check</span><strong id="last-health-check">—</strong></div></div></article>
+            <div class="page-intro"><div><p class="eyebrow">Operations</p><h2 id="health-heading">System health</h2><p class="intro-copy">Service status is read from the existing health and protected-status endpoints where available.</p></div><button class="button button--quiet" id="refresh-health" type="button">Refresh status</button></div><div class="health-grid" id="health-grid"><article class="health-card"><div class="health-card-top"><span class="health-icon">◉</span><span class="status-chip status-chip--amber">Checking</span></div><h3>API foundation</h3><p>Read-only health endpoint</p></article><article class="health-card"><div class="health-card-top"><span class="health-icon">▦</span><span class="status-chip status-chip--muted">Unknown</span></div><h3>Database</h3><p>Supabase PostgreSQL persistence</p></article><article class="health-card"><div class="health-card-top"><span class="health-icon">⌁</span><span class="status-chip status-chip--muted">Not configured</span></div><h3>Market data</h3><p>Validated quote and candle feed</p></article><article class="health-card"><div class="health-card-top"><span class="health-icon">✦</span><span class="status-chip status-chip--muted">Not configured</span></div><h3>AI analysis</h3><p>Structured interpretation adapter</p></article></div><article class="panel health-detail-panel"><div class="panel-heading"><div><p class="eyebrow">Readiness notes</p><h3>Safe operating boundary</h3></div><span class="read-only-badge">TRADING DISABLED</span></div><div class="detail-list"><div><span>Execution mode</span><strong>Disabled</strong></div><div><span>Market data freshness</span><strong>Unavailable</strong></div><div><span>Worker heartbeat</span><strong>Not configured</strong></div><div><span>Last status check</span><strong id="last-health-check">—</strong></div></div></article>
           </section>
 
           <section class="view-panel" data-view-panel="backtest" aria-labelledby="backtest-heading" hidden><div class="page-intro"><div><p class="eyebrow">Historical lab</p><h2 id="backtest-heading">Backtesting</h2><p class="intro-copy">Deterministic historical simulation only. Results are not live performance or a forecast.</p></div><span class="state-chip state-chip--muted">Simulation only</span></div><article class="panel"><div class="empty-state"><span class="empty-state-icon" aria-hidden="true">◌</span><h3>Historical simulation unavailable</h3><p id="backtest-status">No validated historical provider and instrument specification source is configured.</p><span class="empty-state-footnote">No client-supplied candles or prices are accepted.</span></div></article></section>

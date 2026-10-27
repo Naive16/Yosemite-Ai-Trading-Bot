@@ -6,7 +6,7 @@ Milestone 13 operations are fail-closed and read-only. No runbook step enables t
 
 1. Validate `APP_ENV`, `APP_ORIGIN`, `DATABASE_URL`, authentication secrets, and `TRUSTED_PROXY_MODE` in the deployment secret store.
 2. Keep `TRADING_MODE=disabled`, `LIVE_TRADING_ENABLED=false`, and `MT5_EXECUTION_ENABLED=false`.
-3. Run `npm run verify` before deployment. Apply migrations with the direct, non-pooled `DATABASE_URL_UNPOOLED` only after backup/restore procedures and approval.
+3. Run `npm run verify` before deployment. Apply migrations `001`–`008` with `DIRECT_URL` (Supabase Session Mode `:5432` or Direct `:5432`) only after backup/restore procedures and approval.
 4. Inspect the authenticated operations view after startup. A missing database, stale worker, unavailable provider, or blocked risk state is expected to remain visible; do not mark it healthy manually.
 
 ## Outages and worker recovery
@@ -24,7 +24,7 @@ For discrepancies, risk blocks, emergency stops, or unsafe configuration, captur
 
 ## Backups, migrations, rollback, and escalation
 
-- Verify Neon backup/restore capability and retention in the provider console before applying future migrations. The current branch has been live-verified through migration 006 and read-only schema checks.
+- Verify Supabase backup/restore capability and retention in the Supabase Dashboard (and keep the legacy Neon database untouched during cutover) before applying future migrations. Migrations `001` through `008` are verified locally against disposable PostgreSQL.
 - Migrations are additive. Stop if a migration fails; do not delete rows or manually drop tables.
 - Roll back application code to the previous known version only after confirming schema compatibility. Do not reverse migrations destructively without authorization.
 - Escalate any unknown broker outcome, durable data discrepancy, credential exposure, or unexplained execution-state change immediately; preserve the database and logs for investigation.
