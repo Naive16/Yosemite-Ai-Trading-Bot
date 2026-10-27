@@ -75,6 +75,13 @@ export function buildPgClientConfig(connectionString, { queryTimeoutMs = 5_000 }
   }
 
   const hyperdriveHost = isHyperdriveHostname(parsed.hostname);
+  if (hyperdriveHost) {
+    return Object.freeze({
+      connectionString,
+      ssl: false
+    });
+  }
+
   const rawSslMode = (parsed.searchParams.get("sslmode") || "").trim().toLowerCase();
   const effectiveSslMode = rawSslMode || (isLocalHostname(parsed.hostname) ? "prefer" : "verify-full");
 
@@ -83,7 +90,7 @@ export function buildPgClientConfig(connectionString, { queryTimeoutMs = 5_000 }
   parsed.searchParams.delete("uselibpqcompat");
 
   let ssl;
-  if (hyperdriveHost || effectiveSslMode === "disable" || (effectiveSslMode === "prefer" && isLocalHostname(parsed.hostname))) {
+  if (effectiveSslMode === "disable" || (effectiveSslMode === "prefer" && isLocalHostname(parsed.hostname))) {
     ssl = false;
   } else {
     const baseTlsConfig = isSupabaseHostname(parsed.hostname)
@@ -152,7 +159,8 @@ async function runSqlTransaction(rawQuery, timeoutMs, callback) {
 
 export function createDatabaseClient(config, driver = null, options = {}) {
   if (!config?.database?.url) throw new DatabaseConfigurationError("DATABASE_URL is not configured");
-  const timeoutMs = config.database.queryTimeoutMs || 5_000;
+  const configuredTimeoutMs = config.database.queryTimeoutMs || 5_000;
+  const timeoutMs = config.database.hyperdrive && configuredTimeoutMs === 5_000 ? 15_000 : configuredTimeoutMs;
   const pgConfig = buildPgClientConfig(config.database.url, { queryTimeoutMs: timeoutMs });
 
   if (typeof driver === "function") {
@@ -199,7 +207,10 @@ export function createDatabaseClient(config, driver = null, options = {}) {
           }, timeoutMs);
           return normalizeRows(result);
         } finally {
-          await client.end().catch(() => {});
+          await Promise.race([
+            client.end().catch(() => {}),
+            new Promise((resolve) => setTimeout(resolve, 500))
+          ]);
         }
       },
       async transaction(callback) {
@@ -209,7 +220,10 @@ export function createDatabaseClient(config, driver = null, options = {}) {
           await wrapDriverCall(() => client.connect(), timeoutMs);
           return await runSqlTransaction((text, values) => client.query(text, values), timeoutMs, callback);
         } finally {
-          await client.end().catch(() => {});
+          await Promise.race([
+            client.end().catch(() => {}),
+            new Promise((resolve) => setTimeout(resolve, 500))
+          ]);
         }
       },
       async ping() {
