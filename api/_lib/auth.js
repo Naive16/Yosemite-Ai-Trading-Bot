@@ -1,8 +1,10 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { header } from "./http.js";
-import { createSessionWithAudit, deriveCsrfToken, findActiveSession, hashCsrfToken, revokeSessionWithAudit } from "./repository.js";
+import { createSessionWithAudit, deriveCsrfToken, findActiveSession, hashCsrfToken, insertAuditEvent, revokeSessionWithAudit } from "./repository.js";
 import { checkRateLimit, clearRateLimit, rateLimitKey, recordRateLimitFailure } from "./rate-limit.js";
+import { clearSupabaseFetchTestOverride, UnauthorizedOwnerError } from "./supabase.js";
+import { assertNoSpoofedUserIdentity } from "./validation.js";
 
 const scrypt = promisify(scryptCallback);
 const SCRYPT_KEY_LENGTH = 64;
@@ -82,6 +84,7 @@ export async function createSession(userId, config, db, metadata = {}) {
 }
 
 export async function getSession(request, db, config) {
+  assertNoSpoofedUserIdentity(request);
   const cookieHeader = header(request, "cookie");
   const token = cookieHeader.split(";").map((part) => part.trim()).find((part) => part.startsWith("yosemite_session="))?.slice("yosemite_session=".length) || "";
   if (!/^[A-Za-z0-9_-]{40,64}$/.test(token)) return null;
@@ -89,17 +92,25 @@ export async function getSession(request, db, config) {
   if (!session) return null;
   const csrfToken = deriveCsrfToken(token, config.sessionSecret);
   if (!constantTimeStringEqual(session.csrf_token_hash, hashCsrfToken(csrfToken, config.sessionSecret))) return null;
+  if (!config?.supabase?.ownerUserId || !constantTimeStringEqual(String(session.user_id).toLowerCase(), config.supabase.ownerUserId)) {
+    await insertAuditEvent(db, {
+      eventType: "auth.access.denied",
+      metadata: { provider: "supabase", reason: "session_not_workspace_owner" }
+    });
+    throw new UnauthorizedOwnerError();
+  }
   return { token, userId: session.user_id, username: session.username, csrfToken, createdAt: session.created_at, expiresAt: session.expires_at };
 }
 
-export async function destroySession(request, db, config, metadata = {}) {
-  const session = await getSession(request, db, config);
+export async function destroySession(request, db, config, metadata = {}, resolvedSession = null) {
+  const session = resolvedSession || await getSession(request, db, config);
   if (session) await revokeSessionWithAudit(db, { token: session.token, sessionSecret: config.sessionSecret, metadata });
   return session;
 }
 
 export function clearAuthState() {
   loginRateLimitGeneration += 1;
+  clearSupabaseFetchTestOverride();
 }
 
 export function csrfMatches(request, session) {

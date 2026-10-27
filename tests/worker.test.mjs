@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { loadConfig, ConfigurationError } from "../api/_lib/config.js";
 import { WorkerLifecycle, WorkerConfigurationError } from "../api/_lib/worker/lifecycle.js";
 
-const baseEnv = { APP_ENV: "test", APP_ORIGIN: "http://localhost:3000", AUTH_USERNAME: "operator", AUTH_PASSWORD_HASH: "scrypt$1024$1$1$hash$hash", SESSION_SECRET: "x".repeat(32), DATABASE_URL: "postgresql://test:test@example.test/test" };
+import { TEST_SUPABASE_ENV } from "./support/fake-supabase.mjs";
+
+const baseEnv = { APP_ENV: "test", APP_ORIGIN: "http://localhost:3000", ...TEST_SUPABASE_ENV, SESSION_SECRET: "x".repeat(32), DATABASE_URL: "postgresql://test:test@example.test/test" };
 
 test("worker configuration is disabled by default and requires durable database configuration when enabled", () => {
   assert.equal(loadConfig(baseEnv).worker.enabled, false);

@@ -1,7 +1,9 @@
 import { loadConfig, ConfigurationError } from "../_lib/config.js";
 import { getSession } from "../_lib/auth.js";
+import { UnauthorizedOwnerError } from "../_lib/supabase.js";
 import { DatabaseConfigurationError, DatabaseQueryError, getDatabase } from "../_lib/database.js";
 import { sendJson, methodNotAllowed } from "../_lib/http.js";
+import { SpoofedUserIdentityError } from "../_lib/validation.js";
 import { MarketDataProviderError, createMarketDataProvider } from "../_lib/market-data/provider.js";
 import { MarketDataCache } from "../_lib/market-data/cache.js";
 import { MarketDataValidationError, parseMarketDataQuery } from "../_lib/market-data/validation.js";
@@ -31,6 +33,8 @@ export default async function handler(request, response) {
 
   let session; let database;
   try { database = getDatabase(runtimeEnv(request)); session = await getSession(request, database, config); } catch (error) {
+    if (error instanceof SpoofedUserIdentityError) return sendJson(response, 400, { status: "error", code: error.code, message: error.message });
+    if (error instanceof UnauthorizedOwnerError) return sendJson(response, 403, { status: "error", code: "access_denied", message: "Access restricted to the workspace owner" });
     if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable");
     throw error;
   }

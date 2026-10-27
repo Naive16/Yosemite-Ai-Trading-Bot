@@ -1,6 +1,6 @@
-# Yosemite Manual Vercel + Neon Deployment Runbook
+# Yosemite Manual Vercel + Supabase Deployment Runbook
 
-This runbook is for a manually approved deployment of the request-driven Yosemite dashboard and API. It does not authorize deployment, Neon access, migration application, provider calls, broker access, worker activation, or trading.
+This runbook is for a manually approved deployment of the request-driven Yosemite dashboard and API using Supabase Auth + Supabase PostgreSQL. It does not authorize deployment, remote Supabase DDL, Neon modification, migration application, provider calls, broker access, worker activation, or trading.
 
 ## 1. Local release gate
 
@@ -18,7 +18,7 @@ Expected results:
 - `npm run verify` exits 0 with all tests passing.
 - `npm run deployment-check` must print `Deployment preflight passed` before deployment. It prints no secret values.
 
-The preflight is expected to fail in an ordinary local development shell when production `APP_ENV`, HTTPS `APP_ORIGIN`, and `DATABASE_URL` are absent. That is an environment blocker, not a code failure. Migration 007 must still be reviewed and verified on the target Neon branch.
+The preflight is expected to fail in an ordinary local development shell when production `APP_ENV`, HTTPS `APP_ORIGIN`, and `DATABASE_URL` are absent. That is an environment blocker, not a code failure. Migrations `001` through `008` must be reviewed and verified on the target Supabase project.
 
 ## 2. Create or select the Vercel project
 
@@ -36,28 +36,28 @@ In Vercel’s encrypted Production environment settings, configure the following
 | --- | --- | --- |
 | `APP_ENV` | Must be `production`. | Yes |
 | `APP_ORIGIN` | Exact final HTTPS deployment origin. | Yes |
-| `AUTH_USERNAME` | Single configured login username. | Yes |
-| `AUTH_PASSWORD_HASH` | Locally generated scrypt password hash. | Yes |
+| `SUPABASE_URL` | Existing Supabase project HTTPS origin (`https://<ref>.supabase.co`). | Yes |
+| `SUPABASE_ANON_KEY` | Public Supabase `anon` / `publishable` key (`service_role` / `secret` keys are rejected). | Yes |
+| `SUPABASE_OWNER_USER_ID` | Single authorized workspace owner's Supabase Auth UUID. | Yes |
 | `SESSION_SECRET` | Random server-side secret of at least 32 bytes. | Yes |
-| `DATABASE_URL` | Pooled Neon runtime connection URL. | Yes |
-| `DATABASE_URL_UNPOOLED` | Direct, non-pooled Neon URL for migrations only. | Yes for migration workflow |
+| `DATABASE_URL` | Supabase Supavisor Transaction Mode (`:6543`) runtime connection URL. | Yes |
+| `DIRECT_URL` | Supabase Session Mode (`:5432`) or Direct (`:5432`) URL for migrations only. | Yes for migration workflow |
 | `TRADING_MODE` | Keep `disabled`. | Yes |
 | `LIVE_TRADING_ENABLED` | Keep `false`. | Yes |
 | `WORKER_ENABLED` | Keep `false` for request-driven Vercel deployment. | Yes |
 | `MT5_EXECUTION_ENABLED` | Keep `false`. | Yes |
 | `TRUSTED_PROXY_MODE` | Keep `none` until Vercel forwarded-header behavior is confirmed. | Recommended |
 
-Generate the password hash locally with `npm run hash-password`; never place the plaintext password in Vercel, source, logs, or documentation. Optional AI, market-data, news, and MT5 read-only credentials should remain unset until separately approved and verified.
+Never place database passwords, `SESSION_SECRET`, or `service_role` keys in Vercel frontend variables, source, logs, or documentation. Optional AI, market-data, news, and MT5 read-only credentials should remain unset until separately approved and verified.
 
-## 4. Review the Neon target before touching it
+## 4. Review the Supabase target before touching it
 
 Before any migration command:
 
-1. Open the Neon console and select the intended project and branch.
-2. Confirm the branch is the deployment target, not a development or personal branch.
-3. Confirm backup/restore and retention settings.
-4. Record the branch identity and current migration state without copying credentials into notes.
-5. Review every SQL file in `db/migrations/` in order:
+1. Open the Supabase Dashboard and select the intended project.
+2. Confirm Email + Password authentication is enabled, public sign-ups are disabled, and your single owner UUID is confirmed.
+3. Confirm backup/restore settings and keep the legacy Neon database untouched as a read-only fallback.
+4. Review every SQL file in `db/migrations/` in order:
    - `001_initial_schema.sql`
    - `002_risk_engine.sql`
    - `003_trade_proposals.sql`
@@ -65,10 +65,11 @@ Before any migration command:
    - `005_execution_reconciliation.sql`
    - `006_operations.sql`
    - `007_rate_limit_buckets.sql`
-6. Confirm migrations are additive and that migration 007 creates the indexed, constrained shared rate-limit table.
-7. Obtain explicit approval for the migration event.
+   - `008_supabase_rls_hardening.sql`
+5. Confirm migrations are additive, migration `007` creates the shared rate-limit table, and migration `008` enables Row Level Security across all 21 `public` tables.
+6. Obtain explicit approval for the migration event.
 
-Do not use the pooled URL for migrations. The migration runner rejects pooled Neon hostnames and uses `DATABASE_URL_UNPOOLED` first.
+Do not use the Transaction Mode (`:6543`) URL for migrations. The migration runner rejects `:6543` transaction poolers and legacy `*.neon.tech` hosts, using `DIRECT_URL` (`:5432`) first.
 
 ## 5. Apply migrations only after approval
 
@@ -80,7 +81,7 @@ npm run migrate
 
 Expected result: each unapplied migration is reported as applied, or already-applied versions are reported as skipped. Stop immediately on any error. Do not delete rows, drop tables, or manually reverse a migration.
 
-Afterward, verify in Neon that `schema_migrations` records the expected versions and that sessions, audit events, and `rate_limit_buckets` exist with their expected indexes and constraints.
+Afterward, verify in Supabase PostgreSQL that `schema_migrations` records versions `000001` through `000008`, Row Level Security is enabled across all 21 `public` tables, and sessions, audit events, and `rate_limit_buckets` exist with their expected indexes and constraints.
 
 ## 6. Run the production preflight
 
@@ -96,11 +97,11 @@ Expected result:
 Deployment preflight passed. No secrets were printed.
 ```
 
-Any `FAIL` line blocks deployment. Warnings require review, especially proxy trust and migration 007 verification.
+Any `FAIL` line blocks deployment. Warnings require review, especially proxy trust and migrations `001`–`008` verification.
 
 ## 7. Deploy manually
 
-Deploy through the manually selected Vercel workflow only after the preflight and Neon review gates pass. Do not enable optional providers, workers, MT5 execution, or trading as part of this deployment.
+Deploy through the manually selected Vercel workflow only after the preflight and Supabase review gates pass. Do not enable optional providers, workers, MT5 execution, or trading as part of this deployment.
 
 Expected result: Vercel reports a successful deployment and exposes the recorded HTTPS origin. This step was not performed by this audit.
 
@@ -136,7 +137,7 @@ Run these against the final HTTPS origin without recording credentials, cookies,
 ## 10. Rollback and recovery
 
 - Application rollback: redeploy the last known compatible application version through the approved Vercel workflow. Confirm schema compatibility first.
-- Migration failure: stop, preserve the error and migration state, and do not retry blindly or delete data. Use Neon’s approved recovery/restore process.
+- Migration failure: stop, preserve the error and migration state, and do not retry blindly or delete data. Use Supabase's approved recovery/restore process.
 - Schema rollback: do not create a destructive reverse migration without a separate review and authorization.
 - Database outage: leave the application fail-closed; do not bypass authentication, rate limits, risk blocks, or execution guards.
 - Unknown execution outcome: preserve `submission_unknown` / `reconciliation_required` and reconcile before any retry. Do not resubmit blindly.
@@ -144,6 +145,4 @@ Run these against the final HTTPS origin without recording credentials, cookies,
 
 ## Current audit status and costs
 
-No deployment or remote verification was performed. The local checks passed with 91 tests and no failures. The local deployment preflight failed because this audit did not provide production environment variables; it also warned that migration 007 requires target-branch verification.
-
-Vercel, Neon, AI providers, market-data providers, MT5 connectors, and brokers may incur usage or subscription costs. No plan, billing status, or free-tier eligibility was verified here.
+Vercel, Cloudflare, Supabase, AI providers, market-data providers, MT5 connectors, and brokers may incur usage or subscription costs. No paid plan upgrade was enabled.

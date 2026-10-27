@@ -44,6 +44,8 @@ const DEFAULT_WORKER_POLL_INTERVAL_SECONDS = 15;
 const DEFAULT_WORKER_MAX_BACKOFF_SECONDS = 300;
 const DEFAULT_MIRRO_BASE_URL = "https://api.mirroapi.cloud/v1";
 const DEFAULT_MIRRO_TIMEOUT_MS = 10_000;
+const DEFAULT_SUPABASE_AUTH_TIMEOUT_MS = 8_000;
+const SUPABASE_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function readEnv(env, key) {
   const value = env[key];
@@ -68,7 +70,9 @@ function parseBoundedNumber(value, key, minimum, maximum, fallback) {
   return parsed;
 }
 
-function parseDatabaseUrl(value, key) {
+const VALID_POSTGRES_SSL_MODES = new Set(["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]);
+
+function parseDatabaseUrl(value, key, appEnv = "development") {
   if (!value) return "";
   let parsed;
   try {
@@ -76,8 +80,18 @@ function parseDatabaseUrl(value, key) {
   } catch {
     throw new ConfigurationError(`${key} must be a valid PostgreSQL connection URL`);
   }
-  if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname || !parsed.username) {
+  if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname || !parsed.username || !parsed.pathname || parsed.pathname === "/") {
     throw new ConfigurationError(`${key} must be a valid PostgreSQL connection URL`);
+  }
+  if (parsed.hostname.toLowerCase().endsWith(".neon.tech")) {
+    throw new ConfigurationError(`${key} points to a legacy Neon host; configure your Supabase PostgreSQL URL`);
+  }
+  const sslMode = (parsed.searchParams.get("sslmode") || "").trim().toLowerCase();
+  if (sslMode && !VALID_POSTGRES_SSL_MODES.has(sslMode)) {
+    throw new ConfigurationError(`${key} has an unsupported sslmode parameter`);
+  }
+  if (appEnv === "production" && (sslMode === "disable" || sslMode === "allow")) {
+    throw new ConfigurationError(`${key} must require TLS in production`);
   }
   return value;
 }
@@ -131,6 +145,91 @@ function parseCsv(value, key) {
   return Object.freeze([...new Set(values)]);
 }
 
+function assertNotServiceRoleKey(anonKey) {
+  if (/^sb_secret_/i.test(anonKey)) {
+    throw new ConfigurationError("SUPABASE_ANON_KEY must be an anonymous or publishable key, never a secret key");
+  }
+  const segments = anonKey.split(".");
+  if (segments.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(segments[1], "base64url").toString("utf8"));
+      if (payload?.role === "service_role" || payload?.role === "supabase_admin") {
+        throw new ConfigurationError("SUPABASE_ANON_KEY must not be a service_role key");
+      }
+    } catch (error) {
+      if (error instanceof ConfigurationError) throw error;
+    }
+  }
+}
+
+function parseSupabaseConfig(env, appEnv) {
+  if (readEnv(env, "SUPABASE_SERVICE_ROLE_KEY") || readEnv(env, "SUPABASE_SECRET_KEY")) {
+    throw new ConfigurationError("Supabase service-role or secret keys must not be configured; use SUPABASE_ANON_KEY only");
+  }
+
+  const rawUrl = readEnv(env, "SUPABASE_URL");
+  const anonKey = readEnv(env, "SUPABASE_ANON_KEY");
+  const ownerUserId = readEnv(env, "SUPABASE_OWNER_USER_ID");
+  const timeoutMs = parsePositiveInteger(
+    readEnv(env, "SUPABASE_AUTH_TIMEOUT_MS"),
+    "SUPABASE_AUTH_TIMEOUT_MS",
+    500,
+    30_000,
+    DEFAULT_SUPABASE_AUTH_TIMEOUT_MS
+  );
+
+  const anySet = Boolean(rawUrl || anonKey || ownerUserId);
+  const allSet = Boolean(rawUrl && anonKey && ownerUserId);
+
+  if (!anySet) {
+    if (appEnv === "production") {
+      throw new ConfigurationError("SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_OWNER_USER_ID are required in production");
+    }
+    return Object.freeze({
+      url: "",
+      anonKey: "",
+      ownerUserId: "",
+      timeoutMs,
+      configured: false
+    });
+  }
+
+  if (!allSet) {
+    if (appEnv === "production") {
+      throw new ConfigurationError("SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_OWNER_USER_ID are required in production");
+    }
+    throw new ConfigurationError("SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_OWNER_USER_ID must all be set together");
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    throw new ConfigurationError("SUPABASE_URL must be a valid URL");
+  }
+  const isLocalHttp = appEnv !== "production" && parsedUrl.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsedUrl.hostname);
+  if ((parsedUrl.protocol !== "https:" && !isLocalHttp) || parsedUrl.username || parsedUrl.password || parsedUrl.search || parsedUrl.hash || parsedUrl.pathname !== "/") {
+    throw new ConfigurationError("SUPABASE_URL must be a clean HTTPS project origin");
+  }
+
+  if (anonKey.length < 16 || anonKey.length > 2_048 || !/^[A-Za-z0-9._-]+$/.test(anonKey)) {
+    throw new ConfigurationError("SUPABASE_ANON_KEY is invalid");
+  }
+  assertNotServiceRoleKey(anonKey);
+
+  if (!SUPABASE_UUID_PATTERN.test(ownerUserId)) {
+    throw new ConfigurationError("SUPABASE_OWNER_USER_ID must be a valid UUID");
+  }
+
+  return Object.freeze({
+    url: parsedUrl.origin,
+    anonKey,
+    ownerUserId: ownerUserId.toLowerCase(),
+    timeoutMs,
+    configured: true
+  });
+}
+
 export class ConfigurationError extends Error {
   constructor(message) {
     super(message);
@@ -163,20 +262,8 @@ export function loadConfig(env = process.env) {
     throw new ConfigurationError("LIVE_TRADING_ENABLED cannot be true in Milestone 2");
   }
 
-  const authUsername = readEnv(env, "AUTH_USERNAME");
-  if (authUsername && (authUsername.length < 3 || authUsername.length > 64 || /[\u0000-\u001f\u007f]/.test(authUsername))) {
-    throw new ConfigurationError("AUTH_USERNAME must be 3-64 characters without control characters");
-  }
-
-  const passwordHash = readEnv(env, "AUTH_PASSWORD_HASH");
-  if (passwordHash && !/^scrypt\$\d+\$\d+\$\d+\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(passwordHash)) {
-    throw new ConfigurationError("AUTH_PASSWORD_HASH must use the supported scrypt format");
-  }
-
-  const hasCompleteAuth = Boolean(authUsername && passwordHash);
-  if (appEnv === "production" && !hasCompleteAuth) {
-    throw new ConfigurationError("AUTH_USERNAME and AUTH_PASSWORD_HASH are required in production");
-  }
+  const supabase = parseSupabaseConfig(env, appEnv);
+  const hasCompleteAuth = supabase.configured;
 
   const sessionSecret = readEnv(env, "SESSION_SECRET");
   if (hasCompleteAuth && !sessionSecret) {
@@ -186,8 +273,13 @@ export function loadConfig(env = process.env) {
     throw new ConfigurationError("SESSION_SECRET must contain at least 32 bytes");
   }
 
-  const databaseUrl = parseDatabaseUrl(readEnv(env, "DATABASE_URL"), "DATABASE_URL");
-  const databaseDirectUrl = parseDatabaseUrl(readEnv(env, "DATABASE_URL_UNPOOLED"), "DATABASE_URL_UNPOOLED");
+  const databaseUrl = parseDatabaseUrl(readEnv(env, "DATABASE_URL"), "DATABASE_URL", appEnv);
+  const explicitDirectUrl = parseDatabaseUrl(readEnv(env, "DIRECT_URL"), "DIRECT_URL", appEnv);
+  const unpooledDatabaseUrl = parseDatabaseUrl(readEnv(env, "DATABASE_URL_UNPOOLED"), "DATABASE_URL_UNPOOLED", appEnv);
+  if (explicitDirectUrl && unpooledDatabaseUrl && explicitDirectUrl !== unpooledDatabaseUrl) {
+    throw new ConfigurationError("DIRECT_URL and DATABASE_URL_UNPOOLED must match when both are set");
+  }
+  const databaseDirectUrl = explicitDirectUrl || unpooledDatabaseUrl;
   if (appEnv === "production" && !databaseUrl) {
     throw new ConfigurationError("DATABASE_URL is required in production");
   }
@@ -266,7 +358,8 @@ export function loadConfig(env = process.env) {
     trustedProxy: Object.freeze({ mode: trustedProxyMode }),
     tradingMode,
     liveTradingEnabled: false,
-    auth: Object.freeze({ username: authUsername, passwordHash, configured: hasCompleteAuth }),
+    auth: Object.freeze({ provider: "supabase", configured: hasCompleteAuth }),
+    supabase,
     sessionSecret: sessionSecret || "development-only-session-secret-change-me",
     database: Object.freeze({
       url: databaseUrl,

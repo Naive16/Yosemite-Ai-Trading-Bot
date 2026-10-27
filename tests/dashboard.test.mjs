@@ -33,7 +33,10 @@ test("dashboard integrates protected market data without browser credentials", (
   assert.match(app, /\/api\/private\/market-data\?kind=candles/);
   for (const symbol of ["EUR\/USD", "GBP\/USD", "USD\/ZAR", "EUR\/ZAR"]) assert.match(html, new RegExp(symbol));
   assert.match(html, /Data unavailable/);
-  assert.doesNotMatch(app, /TWELVE_DATA_API_KEY|DATABASE_URL|SESSION_SECRET/);
+  assert.match(html, /id="email"/);
+  assert.doesNotMatch(html, /sign-up|signup|create account|register/i);
+  assert.doesNotMatch(app, /\/api\/auth\/signup|\/api\/auth\/register|\/auth\/v1\/signup/i);
+  assert.doesNotMatch(app, /TWELVE_DATA_API_KEY|DATABASE_URL|SESSION_SECRET|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SECRET_KEY|SUPABASE_ANON_KEY|SUPABASE_OWNER_USER_ID/);
 });
 
 test("dashboard exposes informational candidate analysis without execution controls", () => {

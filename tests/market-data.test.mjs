@@ -7,8 +7,10 @@ import { loadConfig } from "../api/_lib/config.js";
 import marketDataHandler, { clearMarketDataCache } from "../api/private/market-data.js";
 import { clearMarketDataRateLimit } from "../api/_lib/market-data/rate-limit.js";
 import { setDatabaseForTests, clearDatabaseTestOverride } from "../api/_lib/database.js";
-import { hashPassword, clearAuthState } from "../api/_lib/auth.js";
+import { clearAuthState } from "../api/_lib/auth.js";
+import { setSupabaseFetchForTests } from "../api/_lib/supabase.js";
 import { FakeDatabase } from "./support/fake-database.mjs";
+import { TEST_OWNER_EMAIL, TEST_OWNER_PASSWORD, TEST_SUPABASE_ENV, createFakeSupabaseFetch } from "./support/fake-supabase.mjs";
 import loginHandler from "../api/auth/login.js";
 
 function responseDouble() {
@@ -80,13 +82,11 @@ test("missing credentials create a safe unavailable provider and config keeps pr
   assert.equal(provider.reason, "provider_disabled");
 });
 
-const password = "correct horse battery staple";
-const passwordHash = await hashPassword(password, { N: 1_024, r: 1, p: 1 });
 const originalEnv = { ...process.env };
 const database = new FakeDatabase();
 
 function configureAuth() {
-  Object.assign(process.env, { APP_ENV: "test", APP_ORIGIN: "http://localhost:3000", TRADING_MODE: "disabled", LIVE_TRADING_ENABLED: "false", AUTH_USERNAME: "operator", AUTH_PASSWORD_HASH: passwordHash, SESSION_SECRET: "b".repeat(32), DATABASE_URL: "postgresql://test:test@example.test/test", MARKET_DATA_PROVIDER: "none" });
+  Object.assign(process.env, { APP_ENV: "test", APP_ORIGIN: "http://localhost:3000", TRADING_MODE: "disabled", LIVE_TRADING_ENABLED: "false", ...TEST_SUPABASE_ENV, SESSION_SECRET: "b".repeat(32), DATABASE_URL: "postgresql://test:test@example.test/test", MARKET_DATA_PROVIDER: "none" });
 }
 
 function request({ method = "GET", cookie = "", url = "/api/private/market-data?kind=quote&symbol=EUR%2FUSD", ip = "market-test" } = {}) {
@@ -103,8 +103,9 @@ before(async () => {
   clearMarketDataRateLimit();
   clearMarketDataCache();
   setDatabaseForTests(database);
+  setSupabaseFetchForTests(createFakeSupabaseFetch());
   const login = responseDouble();
-  await loginHandler({ method: "POST", headers: { origin: "http://localhost:3000", "x-real-ip": "market-login", "content-type": "application/json" }, body: { username: "operator", password } }, login);
+  await loginHandler({ method: "POST", headers: { origin: "http://localhost:3000", "x-real-ip": "market-login", "content-type": "application/json" }, body: { email: TEST_OWNER_EMAIL, password: TEST_OWNER_PASSWORD } }, login);
   database.testCookie = cookieFrom(login);
 });
 

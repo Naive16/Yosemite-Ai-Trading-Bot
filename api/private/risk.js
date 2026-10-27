@@ -1,8 +1,10 @@
 import { loadConfig, ConfigurationError } from "../_lib/config.js";
 import { getSession } from "../_lib/auth.js";
+import { UnauthorizedOwnerError } from "../_lib/supabase.js";
 import { DatabaseConfigurationError, DatabaseQueryError, getDatabase } from "../_lib/database.js";
 import { insertAuditEvent } from "../_lib/repository.js";
 import { sendJson, methodNotAllowed } from "../_lib/http.js";
+import { SpoofedUserIdentityError } from "../_lib/validation.js";
 import { checkRiskRateLimit } from "../_lib/risk/rate-limit.js";
 import { evaluateRisk } from "../_lib/risk/engine.js";
 import { RateLimitUnavailableError } from "../_lib/rate-limit.js";
@@ -16,7 +18,7 @@ export default async function handler(request, response) {
   if (!config.auth.configured) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   if (!config.database.configured) return unavailable(response, "database_unavailable");
   let db; let session;
-  try { db = getDatabase(runtimeEnv(request)); session = await getSession(request, db, config); } catch (error) { if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable"); throw error; }
+  try { db = getDatabase(runtimeEnv(request)); session = await getSession(request, db, config); } catch (error) { if (error instanceof SpoofedUserIdentityError) return sendJson(response, 400, { status: "error", code: error.code, message: error.message }); if (error instanceof UnauthorizedOwnerError) return sendJson(response, 403, { status: "error", code: "access_denied", message: "Access restricted to the workspace owner" }); if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable"); throw error; }
   if (!session) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   let limit;
   try { limit = await checkRiskRateLimit(db, request, config, session.userId); } catch (error) {

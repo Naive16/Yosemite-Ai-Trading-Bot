@@ -1,9 +1,10 @@
 import { loadConfig, ConfigurationError } from "../_lib/config.js";
-import { checkLoginRateLimit, clearLoginAttempts, createSession, recordFailedLogin, verifyPassword } from "../_lib/auth.js";
+import { checkLoginRateLimit, clearLoginAttempts, createSession, recordFailedLogin } from "../_lib/auth.js";
+import { authenticateSupabaseOwner, SupabaseAuthServiceError, UnauthorizedOwnerError } from "../_lib/supabase.js";
 import { DatabaseConfigurationError, DatabaseQueryError, getDatabase } from "../_lib/database.js";
-import { ensureConfiguredUser, insertAuditEvent } from "../_lib/repository.js";
-import { header, methodNotAllowed, sendJson, setSessionCookie } from "../_lib/http.js";
-import { assertSameOrigin, InputValidationError, parseLoginPayload } from "../_lib/validation.js";
+import { insertAuditEvent, resolveSupabaseOwnerUser } from "../_lib/repository.js";
+import { methodNotAllowed, sendJson, setSessionCookie } from "../_lib/http.js";
+import { assertSameOrigin, InputValidationError, parseLoginPayload, SpoofedUserIdentityError } from "../_lib/validation.js";
 import { RateLimitUnavailableError } from "../_lib/rate-limit.js";
 import { runtimeEnv } from "../_lib/runtime.js";
 
@@ -24,24 +25,57 @@ export default async function handler(request, response) {
     assertSameOrigin(request, config.appOrigin);
     const credentials = parseLoginPayload(request);
     const db = getDatabase(runtimeEnv(request));
-    const rate = await checkLoginRateLimit(db, request, config, credentials.username);
+    const rate = await checkLoginRateLimit(db, request, config, credentials.email);
     if (!rate.allowed) return sendJson(response, 429, { status: "error", message: "Too many sign-in attempts" }, { "Retry-After": String(rate.retryAfterSeconds) });
 
-    const user = await ensureConfiguredUser(db, { username: config.auth.username, passwordHash: config.auth.passwordHash });
-    if (!user) return sendJson(response, 503, { status: "error", message: "Authentication service unavailable" });
-    const passwordValid = await verifyPassword(credentials.password, user.password_hash);
-    const usernameValid = credentials.username === user.username;
-    if (!usernameValid || !passwordValid) {
-      await recordFailedLogin(db, rate.key, config);
-      await insertAuditEvent(db, { eventType: "auth.login.failed", metadata: { reason: "invalid_credentials" } });
-      return sendJson(response, 401, { status: "error", message: "Invalid username or password" });
+    let authResult;
+    try {
+      authResult = await authenticateSupabaseOwner({
+        email: credentials.email,
+        password: credentials.password,
+        config
+      });
+    } catch (error) {
+      if (error instanceof UnauthorizedOwnerError) {
+        await recordFailedLogin(db, rate.key, config);
+        await insertAuditEvent(db, {
+          eventType: "auth.access.denied",
+          metadata: { provider: "supabase", reason: "not_workspace_owner" }
+        });
+        return sendJson(response, 403, { status: "error", code: "access_denied", message: "Access restricted to the workspace owner" });
+      }
+      if (error instanceof SupabaseAuthServiceError) {
+        return sendJson(response, 503, { status: "error", message: "Authentication service unavailable" });
+      }
+      throw error;
     }
 
+    if (!authResult.authenticated) {
+      await recordFailedLogin(db, rate.key, config);
+      await insertAuditEvent(db, {
+        eventType: "auth.login.failed",
+        metadata: { provider: "supabase", reason: "invalid_credentials" }
+      });
+      return sendJson(response, 401, { status: "error", message: "Invalid email or password" });
+    }
+
+    const user = await resolveSupabaseOwnerUser(db, {
+      ownerUserId: authResult.user.id,
+      email: authResult.user.email
+    });
+    if (!user) return sendJson(response, 503, { status: "error", message: "Authentication service unavailable" });
+
     await clearLoginAttempts(db, rate.key);
-    const session = await createSession(user.id, config, db, { source: "password" });
+    const session = await createSession(user.id, config, db, { source: "supabase_password" });
     setSessionCookie(response, session.token, config.sessionTtlSeconds, config.appEnv === "production");
-    return sendJson(response, 200, { status: "ok", user: { username: user.username }, csrfToken: session.csrfToken, expiresAt: new Date(session.expiresAt).toISOString() });
+    return sendJson(response, 200, {
+      status: "ok",
+      user: { username: user.username, email: authResult.user.email },
+      csrfToken: session.csrfToken,
+      expiresAt: new Date(session.expiresAt).toISOString()
+    });
   } catch (error) {
+    if (error instanceof SpoofedUserIdentityError) return sendJson(response, 400, { status: "error", code: error.code, message: error.message });
     if (error instanceof InputValidationError) return sendJson(response, 400, { status: "error", message: error.message });
     if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return sendJson(response, 503, { status: "error", message: "Database unavailable" });
     if (error instanceof RateLimitUnavailableError) return sendJson(response, 503, { status: "error", code: "rate_limiter_unavailable", message: "Authentication service unavailable" });

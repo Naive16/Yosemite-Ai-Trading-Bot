@@ -1,7 +1,9 @@
 import { loadConfig, ConfigurationError } from "../_lib/config.js";
 import { getSession } from "../_lib/auth.js";
+import { UnauthorizedOwnerError } from "../_lib/supabase.js";
 import { DatabaseConfigurationError, DatabaseQueryError, getDatabase } from "../_lib/database.js";
 import { sendJson, methodNotAllowed } from "../_lib/http.js";
+import { SpoofedUserIdentityError } from "../_lib/validation.js";
 import { getSymbolDefinition, getTimeframeDefinition } from "../_lib/market-data/symbols.js";
 import { MarketDataProviderError, createMarketDataProvider } from "../_lib/market-data/provider.js";
 import { checkMarketDataRateLimit } from "../_lib/market-data/rate-limit.js";
@@ -35,7 +37,7 @@ export default async function handler(request, response) {
   let config; try { config = loadConfig(runtimeEnv(request)); } catch (error) { if (error instanceof ConfigurationError) return unavailable(response, "configuration_invalid"); throw error; }
   if (!config.auth.configured) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   if (!config.database.configured) return unavailable(response, "database_unavailable");
-  let session; let database; try { database = getDatabase(runtimeEnv(request)); session = await getSession(request, database, config); } catch (error) { if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable"); throw error; }
+  let session; let database; try { database = getDatabase(runtimeEnv(request)); session = await getSession(request, database, config); } catch (error) { if (error instanceof SpoofedUserIdentityError) return sendJson(response, 400, { status: "error", code: error.code, message: error.message }); if (error instanceof UnauthorizedOwnerError) return sendJson(response, 403, { status: "error", code: "access_denied", message: "Access restricted to the workspace owner" }); if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable"); throw error; }
   if (!session) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   let aiLimit; let marketLimit;
   try { aiLimit = await checkAiRateLimit(database, request, config, session.userId); marketLimit = await checkMarketDataRateLimit(database, request, config, session.userId); } catch (error) {

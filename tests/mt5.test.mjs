@@ -5,7 +5,9 @@ import { Mt5Adapter, Mt5ExecutionBlockedError, Mt5ValidationError, assertAllowed
 import { EXECUTION_STATES, ExecutionLedger, ReconciliationError } from "../api/_lib/mt5/reconciliation.js";
 import { MirroMt5Transport } from "../api/_lib/mt5/mirro.js";
 
-const baseEnv = { APP_ENV: "test", APP_ORIGIN: "http://localhost:3000", AUTH_USERNAME: "operator", AUTH_PASSWORD_HASH: "scrypt$1024$1$1$hash$hash", SESSION_SECRET: "m".repeat(32), DATABASE_URL: "postgresql://test:test@example.test/test" };
+import { TEST_SUPABASE_ENV } from "./support/fake-supabase.mjs";
+
+const baseEnv = { APP_ENV: "test", APP_ORIGIN: "http://localhost:3000", ...TEST_SUPABASE_ENV, SESSION_SECRET: "m".repeat(32), DATABASE_URL: "postgresql://test:test@example.test/test" };
 const demoConfig = { demoMode: true, executionEnabled: false, allowedAccountLogins: ["12345"], allowedServers: ["Broker-Demo"] };
 const account = { login: 12345, trade_mode: 0, server: "Broker-Demo", company: "Broker", currency: "USD", equity: 10_000, capturedAt: "2026-10-22T00:00:00Z" };
 

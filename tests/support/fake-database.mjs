@@ -45,8 +45,23 @@ export class FakeDatabase {
       return { rows: [] };
     }
 
+    if (text.includes("SELECT id, username") && text.includes("FROM app_users") && text.includes("WHERE id = $1")) {
+      await Promise.resolve();
+      const [id] = values;
+      const existing = [...this.users.values()].find((candidate) => candidate.id === id);
+      return { rows: existing ? [{ id: existing.id, username: existing.username }] : [] };
+    }
+
     if (text.includes("INSERT INTO app_users")) {
       const [id, username, passwordHash] = values;
+      if (text.includes("ON CONFLICT DO NOTHING")) {
+        const existingById = [...this.users.values()].find((candidate) => candidate.id === id);
+        const existingByUsername = this.users.get(username);
+        if (existingById || existingByUsername) return { rows: [] };
+        const row = { id, username, password_hash: passwordHash };
+        this.users.set(username, row);
+        return { rows: [{ id: row.id, username: row.username }] };
+      }
       const existing = this.users.get(username);
       const row = { id: existing?.id || id, username, password_hash: passwordHash };
       this.users.set(username, row);

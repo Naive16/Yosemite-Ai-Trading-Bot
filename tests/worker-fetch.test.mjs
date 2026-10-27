@@ -3,8 +3,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as workerModule from "../src/worker.js";
 import worker from "../src/worker.js";
-import { hashPassword } from "../api/_lib/auth.js";
 import { routes } from "../api/_lib/worker/routes.js";
+import { TEST_SUPABASE_ANON_KEY, TEST_SUPABASE_OWNER_ID, TEST_SUPABASE_URL } from "./support/fake-supabase.mjs";
 
 const env = {
   APP_ENV: "test",
@@ -26,15 +26,15 @@ test("Worker maps the health endpoint through Fetch API adapters", async () => {
 });
 
 test("Worker resolves Cloudflare Secrets Store async bindings into runtimeEnv", async () => {
-  const pwHash = await hashPassword("correct-horse-battery-staple", { N: 1024, r: 1, p: 1 });
   const secretsStoreEnv = {
     ...env,
     APP_ENV: "production",
     APP_ORIGIN: "https://yosemite-ai-trading-bot.francismkanda01.workers.dev",
-    AUTH_USERNAME: { async get() { return "Alice"; } },
-    AUTH_PASSWORD_HASH: { async get() { return pwHash; } },
+    SUPABASE_URL: { async get() { return TEST_SUPABASE_URL; } },
+    SUPABASE_ANON_KEY: { async get() { return TEST_SUPABASE_ANON_KEY; } },
+    SUPABASE_OWNER_USER_ID: { async get() { return TEST_SUPABASE_OWNER_ID; } },
     SESSION_SECRET: { async get() { return "x".repeat(40); } },
-    DATABASE_URL: { async get() { return "postgresql://user:pass@ep-example-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"; } }
+    DATABASE_URL: { async get() { return "postgresql://postgres.testref:pass@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require"; } }
   };
   const response = await worker.fetch(new Request("https://yosemite-ai-trading-bot.francismkanda01.workers.dev/api/auth/me"), secretsStoreEnv);
   assert.equal(response.status, 401);
@@ -42,13 +42,14 @@ test("Worker resolves Cloudflare Secrets Store async bindings into runtimeEnv", 
 });
 
 test("Worker logs missingRequiredKeys and failedSecretBindings without exposing secret values", async () => {
-  const secretHash = await hashPassword("never-log-this-secret-password", { N: 1024, r: 1, p: 1 });
-  const secretDbUrl = "postgresql://user:ultra-secret-db-pass@ep-example-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require";
+  const secretAnonKey = "sb_publishable_never_log_this_key_value_12345";
+  const secretDbUrl = "postgresql://postgres.testref:ultra-secret-db-pass@aws-0-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require";
   const incompleteEnv = {
     ...env,
     APP_ENV: "production",
     APP_ORIGIN: "https://yosemite-ai-trading-bot.francismkanda01.workers.dev",
-    AUTH_PASSWORD_HASH: secretHash,
+    SUPABASE_URL: TEST_SUPABASE_URL,
+    SUPABASE_ANON_KEY: secretAnonKey,
     DATABASE_URL: secretDbUrl,
     SESSION_SECRET: { async get() { throw new Error("Secret not found"); } }
   };
@@ -65,12 +66,12 @@ test("Worker logs missingRequiredKeys and failedSecretBindings without exposing 
   }
 
   assert.equal(capturedErrors.length, 1);
-  assert.equal(capturedErrors[0].includes(secretHash), false);
+  assert.equal(capturedErrors[0].includes(secretAnonKey), false);
   assert.equal(capturedErrors[0].includes("ultra-secret-db-pass"), false);
   const diagnostic = JSON.parse(capturedErrors[0]);
   assert.equal(diagnostic.event, "worker.config_validation_failed");
-  assert.equal(diagnostic.reason, "AUTH_USERNAME and AUTH_PASSWORD_HASH are required in production");
-  assert.deepEqual(diagnostic.missingRequiredKeys, ["AUTH_USERNAME", "SESSION_SECRET"]);
+  assert.equal(diagnostic.reason, "SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_OWNER_USER_ID are required in production");
+  assert.deepEqual(diagnostic.missingRequiredKeys, ["SESSION_SECRET", "SUPABASE_OWNER_USER_ID"]);
   assert.deepEqual(diagnostic.failedSecretBindings, ["SESSION_SECRET"]);
 });
 
@@ -104,4 +105,20 @@ test("Worker delegates static assets without exposing API source routes", async 
   assert.equal(response.status, 200);
   assert.match(await response.text(), /Yosemite AI/);
   assert.equal(routes.length, 16);
+});
+
+test("Worker resolves optional Hyperdrive connectionString binding when DATABASE_URL is delegated", async () => {
+  const hyperdriveEnv = {
+    ...env,
+    APP_ENV: "production",
+    APP_ORIGIN: "https://yosemite-ai-trading-bot.francismkanda01.workers.dev",
+    SUPABASE_URL: TEST_SUPABASE_URL,
+    SUPABASE_ANON_KEY: TEST_SUPABASE_ANON_KEY,
+    SUPABASE_OWNER_USER_ID: TEST_SUPABASE_OWNER_ID,
+    SESSION_SECRET: "x".repeat(40),
+    HYPERDRIVE: { connectionString: "postgresql://postgres.testref:pass@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require" }
+  };
+  const response = await worker.fetch(new Request("https://yosemite-ai-trading-bot.francismkanda01.workers.dev/api/auth/me"), hyperdriveEnv);
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { status: "error", message: "Authentication required" });
 });
