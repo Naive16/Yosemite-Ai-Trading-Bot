@@ -1,0 +1,47 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import worker from "../src/worker.js";
+import { routes } from "../api/_lib/routes.js";
+
+const env = {
+  APP_ENV: "test",
+  APP_ORIGIN: "http://localhost:8787",
+  TRADING_MODE: "disabled",
+  LIVE_TRADING_ENABLED: "false",
+  ASSETS: { fetch: async () => new Response("<html>Yosemite AI</html>", { status: 200, headers: { "Content-Type": "text/html" } }) }
+};
+
+test("Worker maps the health endpoint through Fetch API adapters", async () => {
+  const response = await worker.fetch(new Request("http://localhost/api/health"), env);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).tradingEnabled, false);
+});
+
+test("Worker routes preserve unsupported-method and unknown-route behavior", async () => {
+  const methodResponse = await worker.fetch(new Request("http://localhost/api/health", { method: "POST" }), env);
+  assert.equal(methodResponse.status, 405);
+  const unknownResponse = await worker.fetch(new Request("http://localhost/api/nope"), env);
+  assert.equal(unknownResponse.status, 404);
+  assert.equal((await unknownResponse.json()).message, "API route not found");
+});
+
+test("Worker bounds request bodies before invoking handlers", async () => {
+  const response = await worker.fetch(new Request("http://localhost/api/auth/login", { method: "POST", body: "x".repeat(65 * 1024) }), env);
+  assert.equal(response.status, 413);
+});
+
+test("Worker stops oversized streaming login bodies without buffering the remainder", async () => {
+  let pulls = 0; let cancelled = false;
+  const body = new ReadableStream({ pull(controller) { pulls += 1; controller.enqueue(new Uint8Array(1024)); }, cancel() { cancelled = true; } });
+  const response = await worker.fetch(new Request("http://localhost/api/auth/login", { method: "POST", body, duplex: "half" }), env);
+  assert.equal(response.status, 413);
+  assert.equal(cancelled, true);
+  assert.ok(pulls <= 66);
+});
+
+test("Worker delegates static assets without exposing API source routes", async () => {
+  const response = await worker.fetch(new Request("http://localhost/"), env);
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Yosemite AI/);
+  assert.equal(routes.length, 17);
+});
