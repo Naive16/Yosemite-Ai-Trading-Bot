@@ -1,0 +1,4 @@
+# Official Windows x86-64 packages from https://pypi.org/simple
+# Verified in the project .venv with CPython 3.11.9 (64-bit).
+MetaTrader5==5.0.6231
+numpy==2.4.6
