@@ -1,0 +1,41 @@
+{
+  "name": "yosemite-ai-trading-bot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Foundation for the Yosemite AI assisted forex trading dashboard.",
+  "scripts": {
+    "check": "node --check server.js && node --check src/app.js && node --check src/worker.js && node --check api/health.js && node --check api/auth/login.js && node --check api/auth/me.js && node --check api/auth/logout.js && node --check api/private/status.js && node --check api/private/operations.js && node --check api/private/market-data.js && node --check api/private/strategy.js && node --check api/private/analysis.js && node --check api/private/risk.js && node --check api/private/proposals.js && node --check api/private/backtest.js && node --check api/private/paper.js && node --check api/_lib/config.js && node --check api/_lib/database.js && node --check api/_lib/repository.js && node --check api/_lib/auth.js && node --check api/_lib/rate-limit.js && node --check api/_lib/runtime.js && node --check api/_lib/deployment.js && node --check api/_lib/operations/logger.js && node --check api/_lib/operations/alerts.js && node --check api/_lib/operations/health.js && node --check api/_lib/operations/retry.js && node --check api/_lib/operations/recovery.js && node --check api/_lib/worker/lifecycle.js && node --check api/_lib/mt5/adapter.js && node --check api/_lib/mt5/reconciliation.js && node --check api/_lib/mt5/mirro.js && node --check api/_lib/market-data/symbols.js && node --check api/_lib/market-data/validation.js && node --check api/_lib/market-data/normalize.js && node --check api/_lib/market-data/provider.js && node --check api/_lib/market-data/cache.js && node --check api/_lib/market-data/rate-limit.js && node --check api/_lib/strategy/indicators.js && node --check api/_lib/strategy/engine.js && node --check api/_lib/claude/client.js && node --check api/_lib/claude/schema.js && node --check api/_lib/news/provider.js && node --check api/_lib/news/normalize.js && node --check api/_lib/ai/rate-limit.js && node --check api/_lib/risk/engine.js && node --check api/_lib/risk/position-sizing.js && node --check api/_lib/risk/repository.js && node --check api/_lib/risk/rate-limit.js && node --check api/_lib/proposals/canonical.js && node --check api/_lib/proposals/repository.js && node --check api/_lib/backtest/engine.js && node --check api/_lib/backtest/metrics.js && node --check api/_lib/paper/simulator.js && node --check scripts/migrate.mjs && node --check scripts/deployment-check.mjs && node --check scripts/start.mjs && node --check scripts/build-auth.mjs && node --check api/auth/config.js && node --check src/auth-client.js && node --check scripts/browser-auth-smoke.mjs && node --check scripts/worker-runtime-smoke.mjs",
+    "start": "node scripts/start.mjs",
+    "worker:dev": "wrangler dev",
+    "worker:build": "npm run build:auth && wrangler deploy --dry-run --outdir=dist",
+    "worker:test": "node --test tests/worker-fetch.test.mjs",
+    "migrate": "node scripts/migrate.mjs",
+    "test": "node --test",
+    "verify": "npm run build:auth && npm run check && npm run check:demo && npm test",
+    "deployment-check": "node scripts/deployment-check.mjs",
+    "build:auth": "node scripts/build-auth.mjs",
+    "prestart": "npm run build:auth",
+    "preworker:dev": "npm run build:auth",
+    "build:client": "npm run build:auth",
+    "test:browser": "npm run build:client && node scripts/browser-auth-smoke.mjs",
+    "test:worker-runtime": "npm run build:client && node scripts/worker-runtime-smoke.mjs",
+    "check:demo": "node --check api/_lib/mt5/demo-preflight.js && node --check scripts/demo-preflight.mjs",
+    "demo:preflight": "node scripts/demo-preflight.mjs",
+    "test:mt5-probe": "python -m unittest discover -s tests -p \"mt5*probe_test.py\" -v"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.12",
+    "esbuild": "^0.28.2",
+    "playwright-core": "1.64.1",
+    "wrangler": "4.154.0"
+  },
+  "dependencies": {
+    "@supabase/auth-js": "2.109.0",
+    "@supabase/postgrest-js": "2.109.0",
+    "@supabase/supabase-js": "2.109.0"
+  }
+}

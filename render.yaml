@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: yosemite-ai-trading-bot
+    runtime: node
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
