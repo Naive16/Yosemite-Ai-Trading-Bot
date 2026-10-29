@@ -54,7 +54,7 @@ export default async function handler(request, response) {
   if (!config.mt5.demoMode) return unavailable(response, "demo_mode_disabled", "MT5 demo mode is not enabled");
 
   let limit;
-  try { limit = await checkRiskRateLimit(db, request, config, session.userId); } catch (error) {
+  try { limit = await checkRiskRateLimit(db, request, config, session.userId, session); } catch (error) {
     if (error instanceof AuthError) return sendJson(response, error.status, { status: "error", code: error.code, message: error.message });
     if (error instanceof RateLimitUnavailableError) return unavailable(response, "rate_limiter_unavailable");
     throw error;

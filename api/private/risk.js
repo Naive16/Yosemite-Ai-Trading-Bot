@@ -19,7 +19,7 @@ export default async function handler(request, response) {
   try { db = getDatabase(runtimeEnv(request)); session = await getSession(request, db, config); } catch (error) { if (error instanceof AuthError) return sendJson(response, error.status, { status: "error", code: error.code, message: error.message }); if (error instanceof DatabaseConfigurationError || error instanceof DatabaseQueryError) return unavailable(response, "database_unavailable"); throw error; }
   if (!session) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
   let limit;
-  try { limit = await checkRiskRateLimit(db, request, config, session.userId); } catch (error) { if (error instanceof AuthError) return sendJson(response, error.status, { status: "error", code: error.code, message: error.message });
+  try { limit = await checkRiskRateLimit(db, request, config, session.userId, session); } catch (error) { if (error instanceof AuthError) return sendJson(response, error.status, { status: "error", code: error.code, message: error.message });
     if (error instanceof RateLimitUnavailableError) return unavailable(response, "rate_limiter_unavailable");
     throw error;
   }

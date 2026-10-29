@@ -169,7 +169,13 @@ export function loadConfig(env = process.env) {
   const supabaseUrl = suppliedSupabaseUrl || (appEnv === "production" ? "" : SUPABASE_PROJECT_URL);
   if (supabaseUrl && supabaseUrl !== SUPABASE_PROJECT_URL) throw new ConfigurationError("SUPABASE_URL must identify the existing Yosemite Supabase project");
   const supabaseKey = parseSupabaseKey(readEnv(env, "SUPABASE_PUBLISHABLE_KEY") || readEnv(env, "SUPABASE_ANON_KEY"));
+  const supabaseServiceRoleKey = readEnv(env, "SUPABASE_SERVICE_ROLE_KEY");
+  if (supabaseServiceRoleKey && !supabaseServiceRoleKey.startsWith("sb_secret_")) {
+    throw new ConfigurationError("SUPABASE_SERVICE_ROLE_KEY must be a Supabase service role key (sb_secret_*)");
+  }
   const supabaseConfigured = Boolean(supabaseUrl && supabaseKey);
+  const cloudflareAccessJwksUrl = readEnv(env, "CLOUDFLARE_ACCESS_JWKS_URL");
+  const cloudflareAccessAudience = readEnv(env, "CLOUDFLARE_ACCESS_AUDIENCE") || undefined;
   const databaseQueryTimeoutMs = parsePositiveInteger(readEnv(env, "DATABASE_QUERY_TIMEOUT_MS"), "DATABASE_QUERY_TIMEOUT_MS", 500, 30_000, DEFAULT_DATABASE_QUERY_TIMEOUT_MS);
   if (appEnv === "production" && !supabaseConfigured) throw new ConfigurationError("SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY are required in production");
   const configuredProxyMode = readEnv(env, "TRUSTED_PROXY_MODE");
@@ -260,7 +266,9 @@ export function loadConfig(env = process.env) {
     tradingMode,
     liveTradingEnabled: false,
     auth: Object.freeze({ provider: "supabase", configured: supabaseConfigured }),
-    supabase: Object.freeze({ url: supabaseUrl, publishableKey: supabaseKey, key: supabaseKey, configured: supabaseConfigured, queryTimeoutMs: databaseQueryTimeoutMs }),
+    supabase: Object.freeze({ url: supabaseUrl, publishableKey: supabaseKey, key: supabaseKey, serviceRoleKey: supabaseServiceRoleKey || null, configured: supabaseConfigured, queryTimeoutMs: databaseQueryTimeoutMs }),
+    supabaseAdmin: Object.freeze({ serviceRoleKey: supabaseServiceRoleKey || null, configured: Boolean(supabaseServiceRoleKey) }),
+    cloudflareAccess: Object.freeze({ jwksUrl: cloudflareAccessJwksUrl || null, audience: cloudflareAccessAudience, configured: Boolean(cloudflareAccessJwksUrl) }),
     database: Object.freeze({
       provider: "supabase",
       configured: supabaseConfigured,

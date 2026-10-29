@@ -122,7 +122,7 @@ function ensureOperationsSummary() {
 
 async function readJson(url, options = {}) {
   try {
-    const response = await fetch(url, { ...options, headers: { Accept: "application/json", ...(options.headers || {}) }, credentials: "omit", cache: "no-store" });
+    const response = await fetch(url, { ...options, headers: { Accept: "application/json", ...(options.headers || {}) }, credentials: "include", cache: "no-store" });
     const data = await response.json().catch(() => ({}));
     return { response, data };
   } catch (error) {

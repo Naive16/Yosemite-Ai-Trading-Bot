@@ -12,6 +12,12 @@ export class FakeDatabase {
     };
   }
   authorize(token) { this.token = token; return this; }
+  authorizeAdmin() { this.adminAuthorized = true; return this; }
+  get adminClient() { return this.client; }
+  async getUserByUsername(username) {
+    const rows = (this.records.get("app_users") || []).filter((row) => row.username === username);
+    return rows[0] || null;
+  }
   async execute(operation) {
     if (this.failQueries) throw new DatabaseQueryError("Supabase database query failed");
     const result = await operation;

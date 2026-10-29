@@ -18,6 +18,14 @@ export function createDatabaseClient(config, factory = createDataClient) {
   const supabase = config?.supabase;
   if (!supabase?.url || !(supabase.publishableKey || supabase.key)) throw new DatabaseConfigurationError();
   const timeoutMs = supabase.queryTimeoutMs || config.database?.queryTimeoutMs || 5_000;
+  const serviceRoleKey = supabase.serviceRoleKey || null;
+  let adminClient = null;
+  if (serviceRoleKey) {
+    adminClient = factory(supabase.url, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: { headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` } }
+    });
+  }
   function clientFor(token) {
     return factory(supabase.url, supabase.publishableKey || supabase.key, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
@@ -27,9 +35,15 @@ export function createDatabaseClient(config, factory = createDataClient) {
   let client = clientFor(null);
   const database = {
     get client() { return client; },
+    get adminClient() { return adminClient; },
     authorize(accessToken) {
       if (typeof accessToken !== "string" || !accessToken) throw new DatabaseConfigurationError("A verified Supabase access token is required");
       client = clientFor(accessToken);
+      return database;
+    },
+    authorizeAdmin() {
+      if (!adminClient) throw new DatabaseConfigurationError("Server-side administration is not configured");
+      client = adminClient;
       return database;
     },
     async execute(operation) {
@@ -56,6 +70,13 @@ export function createDatabaseClient(config, factory = createDataClient) {
       const session = await database.verifySession();
       if (!session?.active_session || !session.user_id) throw new DatabaseQueryError("Supabase database permission check failed");
       return true;
+    },
+    async getUserByUsername(username) {
+      if (!adminClient) throw new DatabaseConfigurationError("Server-side administration is not configured");
+      if (typeof username !== "string" || !username) throw new DatabaseQueryError("Username is required");
+      const data = await database.execute(adminClient.from("app_users").select("id, username").eq("username", username).limit(1));
+      const row = Array.isArray(data) ? data[0] : data;
+      return row || null;
     }
   };
   return database;

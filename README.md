@@ -18,15 +18,31 @@ Copy `.env.example` to ignored `.env` for the Node server. Add the project's **p
 
 For Wrangler, use ignored `.dev.vars` with `APP_ENV=development`, `APP_ORIGIN=http://localhost:8787`, the project URL and its public key, then run `npm run worker:dev`. Choose `.dev.vars` or `.env` for Wrangler, not both. The SDK is bundled locally by the scripts; no CDN is required.
 
+Private dashboard access is provided by Cloudflare Access at the edge, not by an application login page. Add `CLOUDFLARE_ACCESS_JWKS_URL` and `CLOUDFLARE_ACCESS_AUDIENCE` to the same server-side variables (Wrangler `.dev.vars` locally / production environment variables in Cloudflare). The Supabase `SUPABASE_SERVICE_ROLE_KEY` is also server-side only: it enables the Worker's service-role Data API client for Cloudflare-authorized requests and must never be placed in browser code, `.env`, or `.env.example`. The browser receives only the project's public URL and publishable key.
+
 The local `.env` that existed before this repair contains obsolete custom-auth/Neon names and has not been copied into source or rewritten. Replace those names with the configuration in `.env.example`. Old `AUTH_USERNAME`, `AUTH_PASSWORD_HASH`, `SESSION_SECRET`, `SESSION_TTL_SECONDS`, `DATABASE_URL`, `DATABASE_URL_UNPOOLED` and Hyperdrive bindings are unused by runtime code.
 
 An actual login additionally requires the reviewed Supabase schema/RLS and an approved operator membership. Local mocked tests do not prove the external project has those settings. Do not apply historical migrations blindly or enable public signup. Follow the [Supabase and Cloudflare runbook](docs/runbooks/cloudflare-deployment.md) and [repair report](docs/authentication-repair.md).
 
-## Authentication
+## Authentication and private dashboard access
 
-The browser's official Supabase client handles sign-in, persistence, refresh, password recovery and sign-out. Protected API calls carry an access token in the Authorization header. The Worker verifies identity with Supabase Auth and checks the server-side approved membership and active Supabase session; browser-supplied roles or user IDs never authorize access. Data access uses the public project key plus the verified user's JWT and database RLS. No privileged Supabase runtime secret is required.
+Cloudflare Access is the edge authentication barrier for the dashboard and every `/api/private/*` endpoint. There is no application login page. When the browser reaches the dashboard through Cloudflare Access, Cloudflare issues a signed `Cf-Access-Jwt-Assertion` JWT that identifies the user. The Worker verifies that JWT against the Cloudflare Access JWKS (issuer, audience, signature and expiry), maps the asserted email to an `app_users` row whose `username` matches the email, and establishes a server-side session. Requests without a valid assertion receive 401; asserted identities without an approved `app_users` row receive 403.
+
+Protected API calls from the browser send credentials (`credentials: "include"`) so the Cloudflare Access session cookie is attached. Data operations then run through a server-side Supabase service-role client with application-level `user_id` filtering; the service-role key is never sent to the browser. The existing Supabase bearer-token flow remains available for non-browser clients and is preserved unchanged: the Worker verifies the bearer JWT with Supabase Auth, then checks approved membership and active session through a restricted RPC.
+
+The browser receives only the project's public URL and publishable key from `/api/auth/config`. Never put `SUPABASE_SERVICE_ROLE_KEY` or any privileged credential in browser code, `.env`, or `.env.example`.
 
 There is no custom password verifier, cookie session store, Neon runtime adapter or Hyperdrive fallback. Existing historical SQL and milestone reports remain as evidence; they are not deployment instructions for the current backend.
+
+## Manual setup required before first use
+
+This sandbox cannot inspect or change production Supabase/Cloudflare, so the owner must complete these steps manually:
+
+1. **Cloudflare Access** — Add the dashboard domain to a Cloudflare Access application and note its JWKS URL (e.g. `https://<team>.cloudflareaccess.com/.well-known/jwks`) and the intended audience. Set `CLOUDFLARE_ACCESS_JWKS_URL` and `CLOUDFLARE_ACCESS_AUDIENCE` as server-side variables.
+2. **Supabase service-role key** — Set `SUPABASE_SERVICE_ROLE_KEY` (`sb_secret_*`) as a server-side variable only. It is used exclusively by the Worker for Cloudflare-authorized data operations and must never reach the browser.
+3. **Authorized identity** — Insert one `app_users` row whose `username` equals the Cloudflare-asserted email of the authorized operator (e.g. `INSERT INTO app_users (id, username, password_hash) VALUES ('app-operator-001', 'operator@example.test', '<placeholder-satisfying-not-null-32-512-chars>');`). The `password_hash` is never used by the Cloudflare flow but is required by the schema's NOT NULL constraint. No migration is applied by this change; the row is ordinary application data.
+
+Verify: with the above in place, a browser request through Cloudflare Access to `/api/private/status` returns `200` with the operator's username; a request without a valid Cloudflare assertion returns `401`, and an asserted identity with no matching `app_users` row returns `403`. Do not deploy, change production secrets, apply migrations, or enable live trading until these steps are reviewed and approved.
 
 ## Preparing actual MT5 demo execution
 

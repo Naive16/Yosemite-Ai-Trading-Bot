@@ -35,7 +35,7 @@ export default async function handler(request, response) {
   if (!session) return sendJson(response, 401, { status: "error", code: "authentication_required", message: "Authentication required" });
 
   let limit;
-  try { limit = await checkRiskRateLimit(db, request, config, session.userId); } catch (error) {
+  try { limit = await checkRiskRateLimit(db, request, config, session.userId, session); } catch (error) {
     if (error instanceof AuthError) return sendJson(response, error.status, { status: "error", code: error.code, message: error.message });
     if (error instanceof RateLimitUnavailableError) return unavailable(response, "rate_limiter_unavailable");
     throw error;
