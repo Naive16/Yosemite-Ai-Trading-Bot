@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build / test output
+dist/
+build/
+out/
+.next/
+.turbo/
+
+# Local environment / secrets (never commit)
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler/
+.vscode/
+.idea/
+
+# Smoke-test artifacts (do not commit)
+.local-data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.venv/
+env/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

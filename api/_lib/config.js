@@ -185,21 +185,32 @@ export function loadConfig(env = process.env) {
     pollIntervalSeconds: parsePositiveInteger(readEnv(env, "WORKER_POLL_INTERVAL_SECONDS"), "WORKER_POLL_INTERVAL_SECONDS", 5, 3_600, DEFAULT_WORKER_POLL_INTERVAL_SECONDS),
     maxBackoffSeconds: parsePositiveInteger(readEnv(env, "WORKER_MAX_BACKOFF_SECONDS"), "WORKER_MAX_BACKOFF_SECONDS", 5, 3_600, DEFAULT_WORKER_MAX_BACKOFF_SECONDS)
   });
-  const mt5DemoMode = parseBoolean(readEnv(env, "MT5_DEMO_MODE"), "MT5_DEMO_MODE");
-  if (mt5DemoMode) throw new ConfigurationError("MT5_DEMO_MODE must remain false");
-  const mt5ExecutionEnabled = parseBoolean(readEnv(env, "MT5_EXECUTION_ENABLED"), "MT5_EXECUTION_ENABLED");
-  if (mt5ExecutionEnabled) throw new ConfigurationError("MT5_EXECUTION_ENABLED must remain false");
   const mt5AllowedAccountLogins = parseCsv(readEnv(env, "MT5_ALLOWED_ACCOUNT_LOGINS"), "MT5_ALLOWED_ACCOUNT_LOGINS");
   const mt5AllowedServers = parseCsv(readEnv(env, "MT5_ALLOWED_SERVERS"), "MT5_ALLOWED_SERVERS");
-  if (mt5DemoMode && (!mt5AllowedAccountLogins.length || !mt5AllowedServers.length)) throw new ConfigurationError("MT5 demo mode requires account and server allowlists");
+  const mt5DemoMode = parseBoolean(readEnv(env, "MT5_DEMO_MODE"), "MT5_DEMO_MODE");
+  if (mt5DemoMode && (!mt5AllowedAccountLogins.length || !mt5AllowedServers.length)) {
+    throw new ConfigurationError("MT5 demo mode requires account and server allowlists");
+  }
+  const mt5ExecutionEnabled = parseBoolean(readEnv(env, "MT5_EXECUTION_ENABLED"), "MT5_EXECUTION_ENABLED");
+  if (mt5ExecutionEnabled) throw new ConfigurationError("MT5_EXECUTION_ENABLED must remain false; live execution is hard-blocked");
   const mt5Connector = readEnv(env, "MT5_CONNECTOR") || "none";
-  if (mt5Connector !== "none") throw new ConfigurationError("MT5_CONNECTOR must remain none");
+  if (mt5Connector !== "none" && mt5Connector !== "mt5_bridge") {
+    throw new ConfigurationError("MT5_CONNECTOR must be none or mt5_bridge");
+  }
+  const mt5BridgeRaw = readEnv(env, "MT5_BRIDGE_BASE_URL");
+  const mt5BridgeBaseUrl = mt5BridgeRaw ? parseHttpsBaseUrl(mt5BridgeRaw, "MT5_BRIDGE_BASE_URL", "") : "";
+  if (mt5Connector === "mt5_bridge" && !mt5BridgeBaseUrl) {
+    throw new ConfigurationError("MT5_BRIDGE_BASE_URL is required when MT5_CONNECTOR is mt5_bridge");
+  }
+  if (mt5Connector === "mt5_bridge" && mt5ExecutionEnabled) {
+    throw new ConfigurationError("MT5 bridge connector requires MT5_EXECUTION_ENABLED to remain false; demo execution only");
+  }
   const mirroApiKey = readEnv(env, "MIRRO_API_KEY");
   const mirroAccountId = readEnv(env, "MIRRO_ACCOUNT_ID");
   if (mirroApiKey.length > 512 || /[\u0000-\u001f\u007f]/.test(mirroApiKey)) throw new ConfigurationError("MIRRO_API_KEY is invalid");
   if (mirroAccountId.length > 128 || (mirroAccountId && !/^[A-Za-z0-9_-]+$/.test(mirroAccountId))) throw new ConfigurationError("MIRRO_ACCOUNT_ID is invalid");
   const mirroBaseUrl = parseHttpsBaseUrl(readEnv(env, "MIRRO_API_BASE_URL"), "MIRRO_API_BASE_URL", DEFAULT_MIRRO_BASE_URL);
-  const mt5 = Object.freeze({ enabled: mt5DemoMode, demoMode: mt5DemoMode, executionEnabled: false, connector: mt5Connector, allowedAccountLogins: mt5AllowedAccountLogins, allowedServers: mt5AllowedServers, mirro: Object.freeze({ apiKey: mirroApiKey, accountId: mirroAccountId, baseUrl: mirroBaseUrl, configured: mt5Connector === "mirro" && Boolean(mirroApiKey && mirroAccountId), timeoutMs: parsePositiveInteger(readEnv(env, "MIRRO_TIMEOUT_MS"), "MIRRO_TIMEOUT_MS", 500, 30_000, DEFAULT_MIRRO_TIMEOUT_MS) }) });
+  const mt5 = Object.freeze({ enabled: mt5DemoMode, demoMode: mt5DemoMode, executionEnabled: false, connector: mt5Connector, bridgeBaseUrl: mt5BridgeBaseUrl, allowedAccountLogins: mt5AllowedAccountLogins, allowedServers: mt5AllowedServers, mirro: Object.freeze({ apiKey: mirroApiKey, accountId: mirroAccountId, baseUrl: mirroBaseUrl, configured: mt5Connector === "mirro" && Boolean(mirroApiKey && mirroAccountId), timeoutMs: parsePositiveInteger(readEnv(env, "MIRRO_TIMEOUT_MS"), "MIRRO_TIMEOUT_MS", 500, 30_000, DEFAULT_MIRRO_TIMEOUT_MS) }) });
 
   const marketDataProvider = readEnv(env, "MARKET_DATA_PROVIDER") || "none";
   if (!["none", "twelvedata"].includes(marketDataProvider)) {

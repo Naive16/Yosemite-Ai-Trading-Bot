@@ -18,6 +18,8 @@ import riskHandler from "./api/private/risk.js";
 import proposalsHandler from "./api/private/proposals.js";
 import backtestHandler from "./api/private/backtest.js";
 import paperHandler from "./api/private/paper.js";
+import paperTradingHandler from "./api/private/paper-trading.js";
+import mt5DemoHandler from "./api/private/mt5-demo.js";
 
 const DEFAULT_PORT = 3000;
 const MAX_REQUEST_BODY_BYTES = 64 * 1024;
@@ -39,15 +41,18 @@ export const routeRegistry = Object.freeze([
   { method: "POST", path: "/api/private/proposals", handler: proposalsHandler },
   { method: "GET", path: "/api/private/backtest", handler: backtestHandler },
   { method: "POST", path: "/api/private/backtest", handler: backtestHandler },
+  { method: "GET", path: "/api/private/paper-trading", handler: paperTradingHandler },
+  { method: "POST", path: "/api/private/paper-trading", handler: paperTradingHandler },
   { method: "GET", path: "/api/private/paper", handler: paperHandler },
-  { method: "POST", path: "/api/private/paper", handler: paperHandler }
+  { method: "POST", path: "/api/private/paper", handler: paperHandler },
+  { method: "GET", path: "/api/private/mt5-demo", handler: mt5DemoHandler },
+  { method: "POST", path: "/api/private/mt5-demo", handler: mt5DemoHandler }
 ]);
 
 const staticFiles = Object.freeze(new Map([
   ["/", "index.html"],
   ["/index.html", "index.html"],
   ["/src/app.js", "src/app.js"],
-  ["/src/auth-client.js", "src/auth-client.js"],
   ["/src/vendor/supabase.js", "src/vendor/supabase.js"],
   ["/src/styles.css", "src/styles.css"]
 ]));

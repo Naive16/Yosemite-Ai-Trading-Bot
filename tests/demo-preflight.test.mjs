@@ -40,7 +40,7 @@ test("the selected native route remains blocked even when every probe field is p
 });
 
 test("execution switches and secret Supabase keys cannot turn an offline report into approval", () => {
-  for (const override of [{ LIVE_TRADING_ENABLED: "true" }, { WORKER_ENABLED: "true" }, { MT5_DEMO_MODE: "true" }, { MT5_EXECUTION_ENABLED: "true" }, { MT5_CONNECTOR: "mirro" }, { TRADING_MODE: "demo" }, { SUPABASE_PUBLISHABLE_KEY: "sb_secret_forbidden" }]) {
+  for (const override of [{ LIVE_TRADING_ENABLED: "true" }, { WORKER_ENABLED: "true" }, { MT5_EXECUTION_ENABLED: "true" }, { MT5_CONNECTOR: "mirro" }, { TRADING_MODE: "demo" }, { SUPABASE_PUBLISHABLE_KEY: "sb_secret_forbidden" }]) {
     const result = inspectDemoPreflight({ ...environment, ...override });
     assert.equal(result.configuration.valid, false);
     assert.equal(result.executionAllowed, false);

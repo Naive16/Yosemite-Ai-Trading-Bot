@@ -51,7 +51,7 @@ try {
   assert.equal(index.status, 200);
   assert.match(index.headers.get("content-security-policy") || "", /connect-src 'self' https:\/\/txdjozotaxpthpnfikqx.supabase.co/);
   assert.equal((await get("/worker.js")).status, 404);
-  assert.equal((await get("/auth-client.js")).status, 200);
+  assert.equal((await get("/auth-client.js")).status, 404, "auth-client removed with frontend authentication");
   assert.equal((await get("/vendor/supabase.js")).status, 200);
   const health = await (await get("/api/health")).json();
   assert.equal(health.tradingEnabled, false);

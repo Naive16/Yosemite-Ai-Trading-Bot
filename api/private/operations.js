@@ -28,7 +28,9 @@ export default async function handler(request, response) {
       analysis: config.claude.configured ? { state: "unknown", reason: "Analysis provider configured; no live analysis probe was requested" } : { state: "unavailable", reason: "Claude credentials are not configured" },
       worker: heartbeatHealth({ enabled: config.worker.enabled, intervalSeconds: config.worker.heartbeatIntervalSeconds }),
       paper: { state: "unknown", reason: "Paper state is not a health signal" },
-      mt5: { state: "unavailable", reason: "MT5 adapter is disabled" },
+      mt5: config.mt5.demoMode
+        ? { state: "configured", reason: "MT5 demo mode enabled; no bridge transport configured", source: "server" }
+        : { state: "unavailable", reason: "MT5 adapter is disabled" },
       account: { state: "unknown", reason: "No broker account is connected" },
       reconciliation: { state: "unknown", reason: "Durable reconciliation backlog query is not exposed in this read-only diagnostic" },
       risk: { state: "blocked", reason: "Execution remains disabled and trusted account state is unavailable" }

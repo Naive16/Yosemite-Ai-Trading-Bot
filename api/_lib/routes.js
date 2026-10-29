@@ -12,11 +12,16 @@ import riskHandler from "../private/risk.js";
 import proposalsHandler from "../private/proposals.js";
 import backtestHandler from "../private/backtest.js";
 import paperHandler from "../private/paper.js";
+import paperTradingHandler from "../private/paper-trading.js";
+import mt5DemoHandler from "../private/mt5-demo.js";
 
 export const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 export const routes = Object.freeze([
   ["GET /api/auth/config", authConfigHandler], ["GET /api/health", healthHandler], ["POST /api/auth/login", loginHandler], ["GET /api/auth/me", meHandler], ["POST /api/auth/logout", logoutHandler],
   ["GET /api/private/status", statusHandler], ["GET /api/private/operations", operationsHandler], ["GET /api/private/market-data", marketDataHandler], ["GET /api/private/strategy", strategyHandler],
   ["GET /api/private/analysis", analysisHandler], ["GET /api/private/risk", riskHandler], ["GET /api/private/proposals", proposalsHandler], ["POST /api/private/proposals", proposalsHandler],
-  ["GET /api/private/backtest", backtestHandler], ["POST /api/private/backtest", backtestHandler], ["GET /api/private/paper", paperHandler], ["POST /api/private/paper", paperHandler]
+  ["GET /api/private/backtest", backtestHandler], ["POST /api/private/backtest", backtestHandler],
+  ["GET /api/private/paper-trading", paperTradingHandler], ["POST /api/private/paper-trading", paperTradingHandler],
+  ["GET /api/private/paper", paperHandler], ["POST /api/private/paper", paperHandler],
+  ["GET /api/private/mt5-demo", mt5DemoHandler], ["POST /api/private/mt5-demo", mt5DemoHandler]
 ]);

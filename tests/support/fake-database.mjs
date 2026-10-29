@@ -49,6 +49,7 @@ export class FakeDatabase {
     const builder = {
       select() { return builder; },
       insert(values) { operation = "insert"; payload = values; return builder; },
+      update(values) { operation = "update"; payload = values; return builder; },
       eq(field, value) { filters.push([field, value]); return builder; },
       order() { return builder; },
       limit(count) { maximum = count; return builder; },
@@ -62,6 +63,17 @@ export class FakeDatabase {
             rows.push(row); db.records.set(table, rows);
             if (table === "audit_events") db.auditEvents.push(row);
             return { data: [row], error: null };
+          }
+          if (operation === "update") {
+            let updated = 0;
+            for (const row of rows) {
+              if (filters.every(([field, value]) => row[field] === value)) {
+                Object.assign(row, payload);
+                updated += 1;
+              }
+            }
+            db.records.set(table, rows);
+            return { data: rows.filter((row) => filters.every(([field, value]) => row[field] === value)), error: null };
           }
           return { data: rows.filter((row) => filters.every(([field, value]) => row[field] === value)).slice(0, maximum), error: null };
         }).then(resolve, reject);

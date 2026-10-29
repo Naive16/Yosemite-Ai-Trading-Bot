@@ -43,5 +43,5 @@ test("Worker delegates static assets without exposing API source routes", async 
   const response = await worker.fetch(new Request("http://localhost/"), env);
   assert.equal(response.status, 200);
   assert.match(await response.text(), /Yosemite AI/);
-  assert.equal(routes.length, 17);
+  assert.equal(routes.length, 21);
 });

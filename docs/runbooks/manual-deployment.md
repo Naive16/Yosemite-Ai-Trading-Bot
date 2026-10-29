@@ -74,7 +74,7 @@ Verify these exact committed settings and the effective target before the owner 
 | Entry point | `src/worker.js`; preserve compatibility date `2026-10-22` and `nodejs_compat` for this tested release |
 | Assets | Directory `src`, binding `ASSETS`, `run_worker_first: ["/api/*"]`, `not_found_handling: "none"` |
 | Production HTML | `src/index.html` references root paths `/styles.css` and `/app.js`; do not serve the repository-root Node HTML as the Worker entry |
-| Browser SDK | Generate `src/vendor/supabase.js` before deployment; `/auth-client.js` must also exist |
+| Browser SDK | Generate `src/vendor/supabase.js` before deployment; no separate browser auth client is used |
 | Exclusions | `src/.assetsignore` excludes `worker.js`, environment files, maps and logs; the repository-root `.assetsignore` alone is insufficient |
 | Headers | `src/_headers` supplies CSP/security headers; API responses set their own security headers and `no-store` |
 | Domains/origin | Recheck actual Routes/Domains against committed `APP_ORIGIN` and Supabase Site URL. The documented workers.dev host is historical evidence, not a live recheck. No new/custom domain is implied. |
@@ -132,11 +132,11 @@ The existing [Cloudflare/Supabase runbook](cloudflare-deployment.md) supplies th
 
 Use the verified HTTPS origin. Keep credentials and tokens in the browser or trusted memory-only tooling; do not save them to shell history, screenshots, logs or reports.
 
-- [ ] `/`, `/styles.css`, `/app.js`, `/auth-client.js` and `/vendor/supabase.js` load with appropriate content types and no console/module errors. Check CSP, frame protections, `nosniff` and no-store on the HTML entry.
+- [ ] `/`, `/styles.css`, `/app.js` and `/vendor/supabase.js` load with appropriate content types and no console/module errors. Check CSP, frame protections, `nosniff` and no-store on the HTML entry.
 - [ ] `/worker.js`, `/.env`, `/.dev.vars`, `/api/_lib/config.js` and a nonexistent asset return **404**, not source content or the SPA shell. Unknown API returns JSON 404; wrong API method returns 405.
 - [ ] `GET /api/health` returns 200 with both trading flags false. Its `database: "unknown"` is intentional liveness, not database verification. `/api/auth/config` reports configured public settings only. Missing/invalid production configuration must fail with 503, not appear healthy.
 - [ ] In a private signed-out browser, `/api/auth/me` and **all** `/api/private/*` routes deny access with 401 and no private data. Legacy cookies alone and malformed/expired bearer tokens must not authorize access.
-- [ ] Invalid sign-in is generic; approved operator sign-in succeeds, page refresh restores the official session, and access-token renewal works. An active Auth user without membership is denied with 403. Never include a token in the acceptance report.
+- [ ] The dashboard loads directly with no sign-in form, on open and on refresh. In a private browser, `/api/auth/me` and all `/api/private/*` routes deny anonymous access with 401 and no private data. Never include a token in the acceptance report.
 - [ ] Authenticated `/api/private/status` confirms disabled trading and `/api/private/operations` reports a healthy authenticated Supabase permission check. Other unconfigured components may remain explicitly unavailable. Verify the intended user's actual owned records, not only an empty dashboard.
 - [ ] Using approved test identities, confirm the second owner cannot read or modify the first owner's rows through either the Worker or direct Data API. Verify anonymous access and revoked membership remain denied. Do not mutate real trading/domain records merely to smoke-test deployment.
 - [ ] Cross-origin/missing-origin login and logout requests are rejected with 403. Authenticated protected writes must reject invalid origin/authorization without side effects; individual endpoints can return 400 for validation rejection. Do not use a valid proposal approval, paper mutation or order as a smoke test.

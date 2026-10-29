@@ -9,12 +9,20 @@ const baseEnv = { APP_ENV: "test", APP_ORIGIN: "http://localhost:3000", SUPABASE
 const demoConfig = { demoMode: true, executionEnabled: false, allowedAccountLogins: ["12345"], allowedServers: ["Broker-Demo"] };
 const account = { login: 12345, trade_mode: 0, server: "Broker-Demo", company: "Broker", currency: "USD", equity: 10_000, capturedAt: "2026-10-22T00:00:00Z" };
 
-test("MT5 configuration rejects demo, connector, and execution enablement", () => {
+test("MT5 configuration allows demo mode independently while blocking live execution and connectors", () => {
   assert.equal(loadConfig(baseEnv).mt5.executionEnabled, false);
-  assert.throws(() => loadConfig({ ...baseEnv, MT5_EXECUTION_ENABLED: "true" }), ConfigurationError);
+  assert.equal(loadConfig(baseEnv).mt5.demoMode, false);
+  // Demo mode is allowed independently when allowlists are present
+  assert.equal(loadConfig({ ...baseEnv, MT5_DEMO_MODE: "true", MT5_ALLOWED_ACCOUNT_LOGINS: "12345", MT5_ALLOWED_SERVERS: "Broker-Demo" }).mt5.demoMode, true);
+  // Demo mode without allowlists is rejected
   assert.throws(() => loadConfig({ ...baseEnv, MT5_DEMO_MODE: "true" }), ConfigurationError);
-  assert.throws(() => loadConfig({ ...baseEnv, MT5_DEMO_MODE: "true", MT5_ALLOWED_ACCOUNT_LOGINS: "12345", MT5_ALLOWED_SERVERS: "Broker-Demo" }), ConfigurationError);
+  // Live execution remains hard-blocked
+  assert.throws(() => loadConfig({ ...baseEnv, MT5_EXECUTION_ENABLED: "true" }), ConfigurationError);
+  // Connectors remain blocked
   assert.throws(() => loadConfig({ ...baseEnv, MT5_CONNECTOR: "mirro" }), ConfigurationError);
+  // Trading mode and live trading remain disabled
+  assert.throws(() => loadConfig({ ...baseEnv, TRADING_MODE: "demo" }), ConfigurationError);
+  assert.throws(() => loadConfig({ ...baseEnv, LIVE_TRADING_ENABLED: "true" }), ConfigurationError);
 });
 
 test("MT5 account classification rejects unknown or live accounts and accepts only allowlisted demo identity", () => {
@@ -35,12 +43,23 @@ test("MT5 responses require complete symbol metadata and fresh matching quotes",
   assert.throws(() => normalizeMt5Quote({ symbol: "EURUSD", bid: 1.1, ask: 1.1002, timestamp: "2026-10-21T00:00:00Z" }, { now: new Date("2026-10-22T00:00:00Z") }), /stale/);
 });
 
-test("MT5 adapter isolates transport and blocks order submission", async () => {
+test("MT5 adapter isolates transport and allows demo order submission while blocking live execution", async () => {
   const adapter = new Mt5Adapter({ config: demoConfig, transport: { getAccountInfo: async () => account, getSymbolInfo: async () => ({ symbol: "EURUSD", visible: true, tradeMode: "full", contractSize: 100_000, volumeMin: 0.01, volumeMax: 5, volumeStep: 0.01, point: 0.00001, tickSize: 0.00001, tickValue: 1, fillingModes: ["return"] }), getQuote: async () => ({ symbol: "EURUSD", bid: 1.1, ask: 1.1002, timestamp: "2026-10-22T00:00:00Z" }) }, now: () => new Date("2026-10-22T00:00:30Z") });
   const connected = await adapter.connect();
   assert.equal(connected.demo, true);
   assert.equal(connected.executionAllowed, false);
-  await assert.rejects(() => adapter.submitOrder({}), Mt5ExecutionBlockedError);
+  // In demo mode, missing required fields produce validation errors, not execution-blocked errors
+  await assert.rejects(() => adapter.submitOrder({}), (error) => error instanceof Mt5ValidationError);
+  // Valid demo order is accepted (simulated, not submitted to broker)
+  const order = await adapter.submitOrder({ symbol: "EURUSD", volume: 0.01, type: "BUY", stopLoss: 1.09, takeProfit: 1.12, comment: "demo test" });
+  assert.equal(order.simulated, true);
+  assert.equal(order.submittedToBroker, false);
+  assert.equal(order.demo, true);
+  assert.equal(order.status, "accepted_demo");
+  assert.equal(order.accountLogin, 12345);
+  // Live (non-demo) mode still blocks submission
+  const liveAdapter = new Mt5Adapter({ config: { demoMode: false, executionEnabled: false, allowedAccountLogins: [], allowedServers: [] }, transport: { getAccountInfo: async () => ({ ...account, trade_mode: 2, server: "Broker-Live" }) } });
+  await assert.rejects(() => liveAdapter.submitOrder({ symbol: "EURUSD", volume: 0.01, type: "BUY" }), Mt5ExecutionBlockedError);
   await adapter.shutdown();
 });
 

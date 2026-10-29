@@ -20,7 +20,8 @@ test("route registry maps every public application endpoint", () => {
     "GET /api/private/status", "GET /api/private/operations", "GET /api/private/market-data",
     "GET /api/private/strategy", "GET /api/private/analysis", "GET /api/private/risk",
     "GET /api/private/proposals", "POST /api/private/proposals", "GET /api/private/backtest",
-    "POST /api/private/backtest", "GET /api/private/paper", "POST /api/private/paper"
+    "POST /api/private/backtest", "GET /api/private/paper-trading", "POST /api/private/paper-trading",
+    "GET /api/private/paper", "POST /api/private/paper", "GET /api/private/mt5-demo", "POST /api/private/mt5-demo"
   ]);
 });
 

@@ -16,7 +16,6 @@ test("dashboard exposes every Milestone 4 workspace screen", () => {
 test("approvals screen is connected to protected proposal workflow with explicit review", () => {
   assert.match(app, /\/api\/private\/proposals/);
   assert.match(app, /Approve exact proposal/);
-  assert.match(app, /authentication\.request/);
   assert.match(html, /proposal-list/);
   assert.match(app, /exact immutable proposal version/);
 });
@@ -52,8 +51,7 @@ test("dashboard exposes separate read-only Claude analysis with honest unavailab
   assert.match(app, /no current result is available/);
   assert.match(app, /cannot approve or execute trades or authorize risk/);
   assert.match(app, /aiRequestId/);
-  assert.match(html, /login-password-toggle/);
-  assert.doesNotMatch(app, /ANTHROPIC_API_KEY|x-api-key|DATABASE_URL/);
+  assert.doesNotMatch(app, /ANTHROPIC_API_KEY|x-api-key|DATABASE_URL|authentication\.request/);
 });
 
 test("dashboard labels unavailable data and keeps execution disabled", () => {
@@ -64,7 +62,7 @@ test("dashboard labels unavailable data and keeps execution disabled", () => {
   assert.match(app, /\/api\/health/);
   assert.match(app, /\/api\/private\/status/);
   assert.match(app, /\/api\/private\/operations/);
-  assert.match(app, /Authenticated operational diagnostics/);
+  assert.match(app, /Operational diagnostics/);
 });
 
 test("dashboard labels the MT5 account as unverified until a server connector confirms it", () => {
@@ -82,20 +80,16 @@ test("dashboard includes responsive and reduced-motion accessibility affordances
   assert.match(html, /aria-live=\"polite\"/);
 });
 
-test("both deployment frontends use invited Supabase accounts and provide honest auth states", async () => {
+test("both deployment frontends load the dashboard directly without authentication screens", async () => {
   const workerHtml = await readFile(new URL("../src/index.html", import.meta.url), "utf8");
   for (const page of [html, workerHtml]) {
-    assert.match(page, /Invited account email/);
-    assert.match(page, /Checking your session/);
-    assert.match(page, /id="login-submit"[^>]*disabled/);
-    assert.match(page, /id="app-shell" hidden/);
-    assert.match(page, /id="retry-signout-button"/);
-    assert.match(page, /id="recovery-form" hidden/);
-    assert.doesNotMatch(page, /name="username"|Sign up|Create account/);
+    assert.match(page, /id="app-shell"/);
+    assert.doesNotMatch(page, /id="app-shell" hidden/);
+    assert.doesNotMatch(page, /login-screen/);
+    assert.doesNotMatch(page, /login-submit|sign-out-button|recovery-form/);
+    assert.doesNotMatch(page, /name="username"|name="password"|Sign up|Create account/);
   }
-  assert.match(app, /authentication\.signIn\(email, password\)/);
-  assert.match(app, /await authentication\.signOut\(\)/);
-  assert.match(app, /Sign-out could not be confirmed/);
+  assert.doesNotMatch(app, /createAuthentication|authentication\.signIn|authentication\.signOut|showLogin|Sign-out could not be confirmed/);
   assert.doesNotMatch(app, /yosemite_session|csrfToken|localStorage|sessionStorage/);
 });
 

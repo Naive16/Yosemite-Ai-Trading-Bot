@@ -1,0 +1,8 @@
+# Cloudflare Static Assets: keep the Worker entry point and local
+# environment files out of publicly servable static assets.
+worker.js
+worker.js.map
+.env
+.env.*
+.dev.vars
+*.log

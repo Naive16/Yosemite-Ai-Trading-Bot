@@ -4,11 +4,9 @@ The static dashboard and request-driven API retain the existing vanilla JavaScri
 
 ## Authentication boundary
 
-The official `@supabase/supabase-js` client is bundled locally into a generated browser asset. `/api/auth/config` exposes only the pinned project URL and public key. The browser uses official email/password sign-in, persisted sessions, automatic refresh, password recovery and sign-out. There is no registration UI. Supabase public signup must be disabled and operator access explicitly provisioned.
+There is no browser sign-in, sign-up, recovery, or sign-out UI: the dashboard loads directly and refresh goes straight to the dashboard. Private access for the deployed application is enforced at the Cloudflare Access edge; every `/api/private/*` handler additionally verifies a bearer session server-side (Auth `getUser(token)`, approved membership, and an active `auth.sessions` record through a restricted database function) and fails closed — missing/invalid/expired sessions produce 401, verified users without approved access produce 403, and backend or configuration failures produce 503. `/api/auth/config` remains the only auth endpoint surface and exposes only the pinned project URL and public key. There is no registration UI; Supabase public signup must be disabled and access explicitly provisioned.
 
-Every protected API obtains the bearer token, calls Auth `getUser(token)`, checks approved membership and an active `auth.sessions` record through a restricted database function, then uses a request-scoped Supabase Data API client authenticated with that user's JWT. Missing/invalid/expired sessions produce 401, verified users without approved access produce 403, and backend/configuration failures produce 503. Provider errors never include raw tokens, headers or database responses.
-
-The session existence check closes the interval during which an otherwise unexpired Supabase JWT can outlive sign-out. Official Supabase sign-out removes the underlying session. No second session cookie or password authority is maintained. Access tokens are managed by the SDK in browser storage, so same-origin script integrity and the restrictive CSP remain essential.
+No second session cookie or password authority is maintained. Provider errors never include raw tokens, headers or database responses, and database failures produce a clear unavailable state rather than simulated data. With no browser sign-in, private endpoints show an honest unavailable state until a valid session is present; Cloudflare Access is the gate that keeps anonymous internet users off every endpoint.
 
 ## Persistence boundary
 

@@ -1,6 +1,3 @@
-import { createClient } from "./vendor/supabase.js";
-import { createAuthentication } from "./auth-client.js";
-
 const viewMeta = {
   overview: ["Control room", "Overview"],
   markets: ["Markets / watchlist", "Markets"],
@@ -15,12 +12,7 @@ const viewMeta = {
   paper: ["Simulation", "Paper trading"]
 };
 
-const loginScreen = document.querySelector("#login-screen");
 const appShell = document.querySelector("#app-shell");
-const loginForm = document.querySelector("#login-form");
-const loginMessage = document.querySelector("#login-message");
-const loginSubmit = document.querySelector("#login-submit");
-const logoutButton = document.querySelector("#logout-button");
 const pageTitle = document.querySelector("#page-title");
 const pageKicker = document.querySelector("#page-kicker");
 const mainContent = document.querySelector("#main-content");
@@ -29,23 +21,6 @@ const sidebar = document.querySelector("#sidebar");
 const connectionStatus = document.querySelector("#connection-status");
 const healthGrid = document.querySelector("#health-grid");
 const lastHealthCheck = document.querySelector("#last-health-check");
-const recoveryForm = document.querySelector("#recovery-form");
-const recoveryMessage = document.querySelector("#recovery-message");
-const resetPasswordButton = document.querySelector("#reset-password-button");
-const retrySignoutButton = document.querySelector("#retry-signout-button");
-let authReady = false;
-let signingOut = false;
-let authRevision = 0;
-const authentication = createAuthentication({ createClient, onStateChange(event) {
-  if (event === "PASSWORD_RECOVERY") {
-    showLogin();
-    loginForm.hidden = true;
-    recoveryForm.hidden = false;
-    recoveryMessage.textContent = "Choose a new password for this invited account.";
-  } else if (["SIGNED_OUT", "SESSION_REJECTED", "ACCESS_DENIED"].includes(event) && !signingOut) {
-    showLogin(event === "ACCESS_DENIED" ? "This account is not authorized for this workspace." : event === "SESSION_REJECTED" ? "Your session is no longer valid. Sign in again." : "");
-  }
-} });
 const marketState = { symbol: "EUR/USD", timeframe: "M15", quotes: new Map(), requestId: 0, aiRequestId: 0 };
 
 function setView(view) {
@@ -79,21 +54,11 @@ function toggleMobileNavigation() {
   mobileMenuButton.setAttribute("aria-label", isOpen ? "Close navigation" : "Open navigation");
 }
 
-function showLogin(message = "") {
-  authRevision += 1;
-  appShell.hidden = true;
-  loginScreen.hidden = false;
-  loginMessage.textContent = message;
-}
-
 function showAuthenticatedApp() {
-  if (authentication.isRecoveryActive() || signingOut) return;
-  authRevision += 1;
   marketState.quotes.clear();
   document.querySelector("#proposal-list")?.replaceChildren();
   document.querySelector("#approval-count")?.replaceChildren(document.createTextNode("Checking proposals"));
   setMarketUnavailable("Loading protected market data.");
-  loginScreen.hidden = true;
   appShell.hidden = false;
   setView("overview");
   loadRuntimeStatus();
@@ -142,7 +107,7 @@ function ensureOperationsSummary() {
   summary.setAttribute("aria-live", "polite");
   const title = document.createElement("p");
   title.className = "eyebrow";
-  title.textContent = "Authenticated operational diagnostics";
+  title.textContent = "Operational diagnostics";
   summary.append(title);
   for (const [key, label] of [["marketData", "Market data"], ["worker", "Worker heartbeat"], ["reconciliation", "Reconciliation"], ["risk", "Risk readiness"]]) {
     const row = document.createElement("div");
@@ -156,17 +121,12 @@ function ensureOperationsSummary() {
 }
 
 async function readJson(url, options = {}) {
-  if (url.startsWith("/api/private/") && (appShell.hidden || signingOut || authentication.isRecoveryActive())) return { response: new Response(null, { status: 409 }), data: {} };
-  const revision = authRevision;
   try {
-    const result = await authentication.request(url, options);
-    // Discard responses from an earlier identity without replacing a newer
-    // signed-out, access-denied, or recovery message with an expiry message.
-    if (revision !== authRevision && url.startsWith("/api/private/")) return { response: new Response(null, { status: 409 }), data: {} };
-    return result;
+    const response = await fetch(url, { ...options, headers: { Accept: "application/json", ...(options.headers || {}) }, credentials: "omit", cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    return { response, data };
   } catch (error) {
-    if (error?.name === "AuthenticationError") showLogin(error.message);
-    return { response: new Response(null, { status: 503 }), data: { status: "unavailable", message: error?.name === "AuthenticationError" ? error.message : "The requested service is unavailable. Try again shortly." } };
+    return { response: new Response(null, { status: 503 }), data: { status: "unavailable", message: "The requested service is unavailable. Try again shortly." } };
   }
 }
 
@@ -197,9 +157,6 @@ async function loadRuntimeStatus() {
       setHealthCard(1, "amber", "Unavailable");
       setOverviewHealth(1, "amber", "Unavailable");
       setConnectionStatus("amber", protectedStatus.data.message || "Protected services unavailable");
-    } else if (protectedStatus.response.status === 401) {
-      showLogin("Your session has expired. Sign in again.");
-      return;
     } else {
       setHealthCard(1, "muted", "Unknown");
       setOverviewHealth(1, "muted", "Unknown");
@@ -208,11 +165,17 @@ async function loadRuntimeStatus() {
     const checkedAt = health.data.checkedAt ? new Date(health.data.checkedAt) : new Date();
     lastHealthCheck.textContent = Number.isNaN(checkedAt.getTime()) ? "—" : checkedAt.toISOString().replace("T", " ").slice(0, 19) + " UTC";
     const operations = await readJson("/api/private/operations", { headers: { Accept: "application/json" } });
-    if (operations.response.status === 401) { showLogin("Your session has expired. Sign in again."); return; }
-    const services = operations.data.services || {};
-    const stateLabel = (name) => services[name]?.state ? services[name].state.replaceAll("_", " ") : "unknown";
-    const summary = ensureOperationsSummary();
-    for (const key of ["marketData", "worker", "reconciliation", "risk"]) summary?.querySelector(`[data-ops-key="${key}"] strong`)?.replaceChildren(document.createTextNode(stateLabel(key)));
+    if (operations.response.status === 503) {
+      const services = operations.data.services || {};
+      const stateLabel = (name) => services[name]?.state ? services[name].state.replaceAll("_", " ") : "unknown";
+      const summary = ensureOperationsSummary();
+      for (const key of ["marketData", "worker", "reconciliation", "risk"]) summary?.querySelector(`[data-ops-key="${key}"] strong`)?.replaceChildren(document.createTextNode(stateLabel(key)));
+    } else if (operations.response.ok) {
+      const services = operations.data.services || {};
+      const stateLabel = (name) => services[name]?.state ? services[name].state.replaceAll("_", " ") : "unknown";
+      const summary = ensureOperationsSummary();
+      for (const key of ["marketData", "worker", "reconciliation", "risk"]) summary?.querySelector(`[data-ops-key="${key}"] strong`)?.replaceChildren(document.createTextNode(stateLabel(key)));
+    }
   } catch {
     setConnectionStatus("amber", "Service status unavailable");
     setHealthCard(0, "amber", "Unavailable");
@@ -225,7 +188,6 @@ async function loadRiskStatus() {
   const state = document.querySelector("#risk-evaluation-state");
   try {
     const result = await readJson("/api/private/risk", { headers: { Accept: "application/json" } });
-    if (result.response.status === 401) { showLogin("Your session has expired. Sign in again."); return; }
     if (!result.response.ok || result.data.evaluation?.decision === "BLOCKED") {
       if (state) { state.textContent = "BLOCKED"; state.className = "state-chip state-chip--amber"; }
       document.querySelector("#risk-engine-status")?.replaceChildren(document.createTextNode("Risk evaluation BLOCKED"));
@@ -263,20 +225,18 @@ function renderProposals(proposals) {
 async function submitProposalDecision(proposal, action, approve, reject) {
   approve.disabled = true; reject.disabled = true;
   const result = await readJson("/api/private/proposals", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ action, proposalId: proposal.proposalId, proposalVersion: proposal.proposalVersion, contentDigest: proposal.contentDigest, ...(action === "reject" ? { reason: "Rejected during explicit user review" } : {}) }) });
-  if (result.response.status === 401) { showLogin("Your session has expired. Sign in again."); return; }
   if (!result.response.ok) { document.querySelector("#proposal-empty-title").textContent = result.data.message || "Proposal decision unavailable"; document.querySelector("#proposal-empty-state").hidden = false; }
   await loadProposals();
 }
 
 async function loadProposals() {
   const result = await readJson("/api/private/proposals", { headers: { Accept: "application/json" } });
-  if (result.response.status === 401) { showLogin("Your session has expired. Sign in again."); return; }
   if (!result.response.ok) { document.querySelector("#approval-count")?.replaceChildren(document.createTextNode("Unavailable")); document.querySelector("#proposal-empty-message")?.replaceChildren(document.createTextNode(result.data.message || "Proposal workflow is unavailable.")); return; }
   renderProposals(Array.isArray(result.data.proposals) ? result.data.proposals : []);
 }
 
 async function loadSimulationStatus() {
-  const [backtest, paper] = await Promise.allSettled([readJson("/api/private/backtest", { headers: { Accept: "application/json" } }), readJson("/api/private/paper", { headers: { Accept: "application/json" } })]);
+  const [backtest, paper] = await Promise.allSettled([readJson("/api/private/backtest", { headers: { Accept: "application/json" } }), readJson("/api/private/paper-trading", { headers: { Accept: "application/json" } })]);
   const backtestData = backtest.status === "fulfilled" ? backtest.value.data : {}; const paperData = paper.status === "fulfilled" ? paper.value.data : {};
   document.querySelector("#backtest-status")?.replaceChildren(document.createTextNode(backtestData.message || "Historical simulation unavailable"));
   document.querySelector("#paper-status")?.replaceChildren(document.createTextNode(paperData.message || "Paper simulation unavailable"));
@@ -306,7 +266,7 @@ function formatPrice(value) {
 }
 
 function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
+  return String(value).replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[character]));
 }
 
 function renderMarketCards() {
@@ -450,7 +410,7 @@ function renderCandidate(data) {
   const candidate = data?.candidate;
   if (!candidate) { setCandidateUnavailable(); return; }
   const isNoTrade = candidate.direction === "NO TRADE";
-  document.querySelector("#candidate-heading").textContent = isNoTrade ? "No trade decision" : "Informational candidate";
+  document.querySelector("#candidate-heading").textContent = isNoTrade ? "No trade decision" : `Informational candidate`;
   document.querySelector("#candidate-state").textContent = isNoTrade ? "NO TRADE" : `Informational ${candidate.direction}`;
   document.querySelector("#candidate-direction").textContent = candidate.direction;
   document.querySelector("#candidate-signal-state").textContent = candidate.signalStatus || "Not confirmed";
@@ -469,7 +429,6 @@ function renderCandidate(data) {
 
 async function loadCandidateAnalysis() {
   const result = await readJson(`/api/private/strategy?symbol=${encodeURIComponent(marketState.symbol)}&timeframe=${encodeURIComponent(marketState.timeframe)}`, { headers: { Accept: "application/json" } });
-  if (result.response.status === 401) { showLogin("Your session has expired. Sign in again."); return; }
   if (!result.response.ok) { setCandidateUnavailable(result.data.message || "Candidate analysis is unavailable"); return; }
   renderCandidate(result.data);
 }
@@ -479,14 +438,12 @@ async function loadAiAnalysis() {
   setAiUnavailable("AI analysis is loading; no current result is available.");
   const result = await readJson(`/api/private/analysis?symbol=${encodeURIComponent(marketState.symbol)}&timeframe=${encodeURIComponent(marketState.timeframe)}`, { headers: { Accept: "application/json" } });
   if (requestId !== marketState.aiRequestId) return;
-  if (result.response.status === 401) { showLogin("Your session has expired. Sign in again."); return; }
   if (!result.response.ok) { setAiUnavailable(result.data.message || "AI analysis is temporarily unavailable; no current result is available."); return; }
   renderAiAnalysis(result.data);
 }
 
 async function loadMarketQuote(symbol) {
   const result = await readJson(`/api/private/market-data?kind=quote&symbol=${encodeURIComponent(symbol)}`, { headers: { Accept: "application/json" } });
-  if (result.response.status === 401) { showLogin("Your session has expired. Sign in again."); return null; }
   if (!result.response.ok) return null;
   marketState.quotes.set(symbol, result.data);
   renderMarketCards();
@@ -503,7 +460,6 @@ async function loadMarketCandles() {
   renderChartEmpty("Loading validated candles", `Requesting ${symbol} ${timeframe} data from the configured server-side provider.`);
   const result = await readJson(`/api/private/market-data?kind=candles&symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&limit=90`, { headers: { Accept: "application/json" } });
   if (requestId !== marketState.requestId) return;
-  if (result.response.status === 401) { showLogin("Your session has expired. Sign in again."); return; }
   if (!result.response.ok) {
     setMarketUnavailable(result.data.message || "Live market data is unavailable");
     return;
@@ -558,130 +514,18 @@ document.querySelectorAll(".instrument-card").forEach((button) => {
   });
 });
 
-document.querySelectorAll("[data-chart-symbol]").forEach((button) => button.addEventListener("click", () => {
+document.querySelectorAll("[data-chart-symbol]").forEach((button) => {
   selectMarketSymbol(button.dataset.chartSymbol);
-}));
+});
 
-document.querySelectorAll("[data-timeframe]").forEach((button) => button.addEventListener("click", () => {
+document.querySelectorAll("[data-timeframe]").forEach((button) => {
   document.querySelectorAll("[data-timeframe]").forEach((timeframe) => timeframe.classList.toggle("is-selected", timeframe === button));
   marketState.timeframe = button.dataset.timeframe;
   document.querySelector("#chart-context").textContent = `${marketState.symbol} · ${marketState.timeframe}`;
   loadMarketCandles().catch(() => setMarketUnavailable());
-}));
-
-loginForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (!authReady || signingOut) return;
-  loginMessage.textContent = "";
-  loginSubmit.disabled = true;
-  try {
-    const form = new FormData(loginForm);
-    const email = String(form.get("email") || "").trim();
-    const password = String(form.get("password") || "");
-    if (!email || !password || !loginForm.reportValidity()) {
-      loginMessage.textContent = "Enter your invited account email and password.";
-      return;
-    }
-    await authentication.signIn(email, password);
-    loginForm.reset();
-    showAuthenticatedApp();
-  } catch (error) {
-    showLogin(error?.name === "AuthenticationError" ? error.message : "The authentication service is unavailable. Try again shortly.");
-  } finally {
-    loginSubmit.disabled = false;
-  }
 });
 
-function togglePassword(inputId, button) {
-  const input = document.querySelector(`#${inputId}`); if (!input) return;
-  const visible = input.type === "password"; const label = visible ? "Hide password" : "Show password";
-  input.type = visible ? "text" : "password"; button.setAttribute("aria-label", label); button.setAttribute("title", label); button.setAttribute("aria-pressed", String(visible));
-}
-document.querySelector("#login-password-toggle")?.addEventListener("click", (event) => togglePassword("password", event.currentTarget));
-
-async function signOut() {
-  signingOut = true;
-  showLogin("Signing out and revoking this session…");
-  loginForm.hidden = true;
-  recoveryForm.hidden = true;
-  retrySignoutButton.hidden = true;
-  logoutButton.disabled = true;
-  try {
-    await authentication.signOut();
-    signingOut = false;
-    loginForm.hidden = false;
-    showLogin("You have been signed out.");
-  } catch (error) {
-    loginMessage.textContent = error?.name === "AuthenticationError" ? error.message : "Sign-out could not be confirmed. Protected views are hidden. Retry sign-out.";
-    retrySignoutButton.hidden = false;
-  } finally {
-    logoutButton.disabled = false;
-  }
-}
-logoutButton.addEventListener("click", signOut);
-retrySignoutButton.addEventListener("click", signOut);
-
-resetPasswordButton.addEventListener("click", async () => {
-  if (!authReady) return;
-  const email = document.querySelector("#email");
-  if (!email.value.trim() || !email.reportValidity()) {
-    loginMessage.textContent = "Enter your invited account email to request recovery.";
-    email.focus();
-    return;
-  }
-  resetPasswordButton.disabled = true;
-  try {
-    await authentication.sendRecovery(email.value.trim(), window.location.origin);
-    loginMessage.textContent = "If this address belongs to an eligible account, a recovery link will be sent. Open it in this browser.";
-  } catch (error) {
-    loginMessage.textContent = error?.name === "AuthenticationError" ? error.message : "The recovery service is unavailable. Try again shortly.";
-  } finally {
-    resetPasswordButton.disabled = false;
-  }
-});
-
-recoveryForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const submit = document.querySelector("#recovery-submit");
-  const password = document.querySelector("#recovery-password");
-  if (!password.reportValidity()) return;
-  submit.disabled = true;
-  try {
-    await authentication.updatePassword(password.value);
-    recoveryForm.reset();
-    recoveryForm.hidden = true;
-    loginForm.hidden = false;
-    window.history.replaceState(null, "", "/");
-    showLogin("Password updated. Sign in again with your new password.");
-  } catch (error) {
-    recoveryMessage.textContent = error?.name === "AuthenticationError" ? error.message : "The password could not be updated. Try again shortly.";
-  } finally {
-    submit.disabled = false;
-  }
-});
-
-async function checkSession() {
-  loginSubmit.disabled = true;
-  resetPasswordButton.disabled = true;
-  showLogin("Checking your session…");
-  try {
-    await authentication.initialize();
-    authReady = true;
-    if (authentication.isRecoveryActive()) return;
-    const { response, data } = await authentication.verifySession();
-    if (response.ok) {
-      showAuthenticatedApp();
-      return;
-    }
-    showLogin(response.status === 401 ? "" : data.message || (response.status === 403 ? "This account is not authorized for this workspace." : "The authentication service is unavailable. Try again shortly."));
-  } catch (error) {
-    showLogin(error?.name === "AuthenticationError" ? error.message : "The authentication service is unavailable. Check the local API and try again.");
-  } finally {
-    loginSubmit.disabled = !authReady;
-    resetPasswordButton.disabled = !authReady;
-  }
-}
+showAuthenticatedApp();
 
 updateClock();
 setInterval(updateClock, 1000);
-checkSession();

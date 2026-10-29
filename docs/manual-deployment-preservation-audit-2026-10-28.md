@@ -99,7 +99,7 @@ No new code defect requiring a source change was established. Optional unconfigu
 
 1. **Use the existing release root:** `C:\Users\Francis\OneDrive\Documents\Projects\Yosemite AI Trading Bot`, with `wrangler.jsonc`. Preserve it; reconcile source in a separate reviewed checkout or source view. Verify the intended `Naive16/Yosemite-Ai-Trading-Bot` revision and any automatic Cloudflare build trigger before an owner upload/push. This audit performed neither.
 2. **Select supported Node and locked dependencies:** build the reviewed commit with Node 24.22.1 (at least 22). In the owner's separate clean build, install from `package-lock.json` without upgrading and run `npm run build:client`. Do not mutate this preserved workspace to create a release package. Verify the generated browser SDK exists before publishing.
-3. **Deploy the application through its Worker project, not a static folder upload.** The Worker entry is `src/worker.js`, bundled with its imported `api/` and package dependencies. Static assets come only from `src/`, including `src/index.html`, `styles.css`, `app.js`, `auth-client.js`, the generated `vendor/supabase.js`, `_headers` and `.assetsignore`. Production uses root asset URLs, not `/src/app.js`. Do not publish the repository root HTML in place of `src/index.html`.
+3. **Deploy the application through its Worker project, not a static folder upload.** The Worker entry is `src/worker.js`, bundled with its imported `api/` and package dependencies. Static assets come only from `src/`, including `src/index.html`, `styles.css`, `app.js`, the generated `vendor/supabase.js`, `_headers` and `.assetsignore`. Production uses root asset URLs, not `/src/app.js`. Do not publish the repository root HTML in place of `src/index.html`.
 4. **Retain the other source in GitHub:** `api/`, `src/` source, `bridge/` Python/MQL5 source and requirements, `db/`, `scripts/`, `tests/`, `docs/`, `server.js`, both HTML entries, `package.json`, `package-lock.json`, `.node-version`, `.npmrc`, `.gitignore`, `.env.example` and `wrangler.jsonc`. These are not all public static assets. The bridge stays on Windows; database SQL stays a separately reviewed administrative operation. Historical evidence, secrets, virtual environments, dependencies, stale build output and compiled local MT5 artifacts are not source-upload/static-asset payloads.
 5. **Verify Cloudflare configuration:** existing Worker `yosemite-ai-trading-bot`, correct account/origin, entry `src/worker.js`, compatibility date `2026-10-22`, `nodejs_compat`, `ASSETS` binding to `src`, `run_worker_first: ["/api/*"]`, `not_found_handling: "none"`, current `src/.assetsignore`/`src/_headers`. Confirm logs/traces and secret redaction. `keep_vars=true` does not attest to effective remote values. Do not introduce new cron/execution triggers.
 6. **Privately verify the required setting names:** `APP_ENV`, `APP_ORIGIN`, `SUPABASE_URL`, and `SUPABASE_PUBLISHABLE_KEY` or the supported `SUPABASE_ANON_KEY` alias. Confirm all six disabled controls listed above. Optional names include `TRUSTED_PROXY_MODE`, `DATABASE_QUERY_TIMEOUT_MS` and build-only `NODE_VERSION`. Optional provider secrets are not required to deploy the disabled dashboard. Never use a service-role/privileged Supabase key, database password or broker password in runtime/browser code. Do not print or upload secret values. A deployed secret edit can itself publish a Cloudflare version and is not authorized by this audit.
@@ -111,7 +111,7 @@ No new code defect requiring a source change was established. Optional unconfigu
 
 ## Post-deployment smoke tests — owner performs later
 
-- Confirm `/`, `/styles.css`, `/app.js`, `/auth-client.js` and `/vendor/supabase.js` load, with correct content types and no console/module failures. Verify CSP/security headers and no-store on the HTML entry/API responses.
+- Confirm `/`, `/styles.css`, `/app.js` and `/vendor/supabase.js` load, with correct content types and no console/module failures. Verify CSP/security headers and no-store on the HTML entry/API responses.
 - Require 404 for `/worker.js`, `/.env`, `/.dev.vars`, `/api/_lib/config.js` and missing assets. Unknown API returns JSON 404; unsupported API method returns 405, not the HTML shell.
 - Check `/api/health` returns healthy liveness with both trading flags false and `/api/auth/config` exposes public configuration only. `database: "unknown"` on public health is not target/database verification.
 - In a private signed-out browser, require 401 from `/api/auth/me` and all `/api/private/*` routes; cookies alone and malformed/expired JWTs cannot authorize. Approved operator login, refresh and renewal must work; unapproved Auth accounts must be denied with 403.
@@ -258,7 +258,6 @@ server.js
 src/.assetsignore
 src/_headers
 src/app.js
-src/auth-client.js
 src/index.html
 src/styles.css
 src/worker.js
@@ -270,7 +269,6 @@ tests/dashboard.test.mjs
 tests/database.test.mjs
 tests/demo-preflight.test.mjs
 tests/deployment.test.mjs
-tests/frontend-auth.test.mjs
 tests/health.test.mjs
 tests/market-data.test.mjs
 tests/mt5-mirro.test.mjs

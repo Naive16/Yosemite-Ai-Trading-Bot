@@ -9,42 +9,7 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <section class="login-screen" id="login-screen" aria-labelledby="login-title">
-      <div class="login-card">
-        <div class="brand-lockup brand-lockup--login">
-          <div class="brand-mark" aria-hidden="true">Y</div>
-          <div>
-            <p class="brand-name">Yosemite AI</p>
-            <p class="brand-subtitle">Assisted trading workspace</p>
-          </div>
-        </div>
-        <h1 id="login-title">Enter your workspace</h1>
-        <form id="login-form" novalidate>
-          <label for="email">Invited account email</label>
-          <input id="email" name="email" type="email" autocomplete="username" maxlength="254" required />
-          <label for="password">Password</label>
-          <div class="password-field">
-            <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required />
-            <button class="password-toggle" id="login-password-toggle" type="button" aria-label="Show password" aria-controls="password" aria-pressed="false" title="Show password">
-              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.5"/></svg>
-            </button>
-          </div>
-          <button class="button button--primary login-submit" id="login-submit" type="submit" disabled>Sign in</button>
-          <button class="button button--quiet" id="reset-password-button" type="button" disabled>Reset password</button>
-        </form>
-        <form id="recovery-form" hidden>
-          <label for="recovery-password">New password</label>
-          <input id="recovery-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required />
-          <button class="button button--primary login-submit" id="recovery-submit" type="submit">Update password</button>
-          <p class="form-message" id="recovery-message" role="alert" aria-live="polite"></p>
-        </form>
-        <p class="form-message" id="login-message" role="alert" aria-live="polite">Checking your session…</p>
-        <button class="button button--quiet" id="retry-signout-button" type="button" hidden>Retry sign-out</button>
-        <p class="login-footnote">Access is restricted to approved invited accounts. Trading remains paused. Live execution is not available.</p>
-      </div>
-    </section>
-
-    <div class="app-shell" id="app-shell" hidden>
+    <div class="app-shell" id="app-shell">
       <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
         <div class="brand-lockup">
           <div class="brand-mark" aria-hidden="true">Y</div>
@@ -92,7 +57,6 @@
           </div>
           <div class="topbar-actions">
             <div class="connection-pill" id="connection-status" aria-live="polite"><span class="status-dot status-dot--amber"></span><span>Checking services</span></div>
-            <button class="button sign-out-button" id="logout-button" type="button">Sign out</button>
           </div>
         </header>
 

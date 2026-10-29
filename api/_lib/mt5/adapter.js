@@ -12,6 +12,8 @@ export class Mt5ValidationError extends Mt5ProviderError {
   constructor(message, code = "mt5_invalid_response") { super(message, code); this.name = "Mt5ValidationError"; }
 }
 
+import { createHash } from "node:crypto";
+
 function requiredString(value, field, maximum = 128) { if (typeof value !== "string" || !value.trim() || value.length > maximum) throw new Mt5ValidationError(`${field} is invalid`); return value.trim(); }
 function positive(value, field) { if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Mt5ValidationError(`${field} is invalid`); return value; }
 function timestamp(value, field) { const date = new Date(value); if (Number.isNaN(date.getTime())) throw new Mt5ValidationError(`${field} is invalid`); return date.toISOString(); }
@@ -57,6 +59,38 @@ export class Mt5Adapter {
   async positions() { if (!this.account) throw new Mt5ProviderError("MT5 account is not connected", "not_connected"); return this.transport.getPositions(); }
   async orders() { if (!this.account) throw new Mt5ProviderError("MT5 account is not connected", "not_connected"); return this.transport.getOrders(); }
   async history(range) { if (!this.account) throw new Mt5ProviderError("MT5 account is not connected", "not_connected"); return this.transport.getHistory(range); }
-  async submitOrder() { throw new Mt5ExecutionBlockedError(); }
+  async submitOrder(orderRequest = {}) {
+    if (!this.config?.demoMode || this.config.executionEnabled) {
+      throw new Mt5ExecutionBlockedError();
+    }
+    if (!this.account) throw new Mt5ProviderError("MT5 account is not connected", "not_connected");
+    if (this.account.classification !== "demo") throw new Mt5ValidationError("Provider did not positively identify a demo account", "demo_account_required");
+    const symbol = requiredString(orderRequest.symbol, "symbol", 32);
+    const volume = positive(orderRequest.volume, "volume");
+    const type = requiredString(orderRequest.type, "type");
+    if (!["BUY", "SELL"].includes(type)) throw new Mt5ValidationError("MT5 order type is invalid", "invalid_order_type");
+    const stopLoss = orderRequest.stopLoss != null ? positive(orderRequest.stopLoss, "stopLoss") : null;
+    const takeProfit = orderRequest.takeProfit != null ? positive(orderRequest.takeProfit, "takeProfit") : null;
+    const comment = typeof orderRequest.comment === "string" ? requiredString(orderRequest.comment, "comment", 512) : "";
+    const orderId = `demo_${createHash("sha256").update(`${this.account.login}:${symbol}:${volume}:${type}:${Date.now()}`).digest("hex").slice(0, 24)}`;
+    return Object.freeze({
+      orderId,
+      type,
+      symbol,
+      volume,
+      stopLoss,
+      takeProfit,
+      comment,
+      accountLogin: this.account.login,
+      server: this.account.server,
+      currency: this.account.currency,
+      status: "accepted_demo",
+      simulated: true,
+      submittedToBroker: false,
+      demo: true,
+      createdAt: new Date(this.now()).toISOString(),
+      note: "Demo order accepted and simulated; no live broker submission occurred. An external MT5 bridge is required for actual terminal execution."
+    });
+  }
   async shutdown() { if (typeof this.transport.shutdown === "function") await this.transport.shutdown(); this.account = null; return { status: "stopped", executionAllowed: false }; }
 }
